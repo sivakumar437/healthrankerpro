@@ -6,6 +6,8 @@ const state = {
   user: null,
   route: "dashboard",
   query: "",
+  memberEntryOpen: false,
+  showHiddenMembers: false,
   attendanceMemberId: "",
   profileMemberId: "",
   modal: null,
@@ -20,6 +22,10 @@ const state = {
   auditEntries: [],
   auditTypes: [],
   auditFilters: { from: "", to: "", type: "" },
+  paymentEntries: [],
+  paymentCardTypes: [],
+  paymentTotal: 0,
+  paymentFilters: { from: "", to: "", cardType: "", memberId: "", showSum: false },
   notifications: [],
   week: "",
 };
@@ -48,6 +54,7 @@ const icons = {
   calendar: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/><path d="m9 16 2 2 4-5"/></svg>',
   check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>',
   clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>',
+  wallet: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0 0 4h14a2 2 0 0 1 2 2v2"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-6"/><path d="M18 12h4v6h-4a3 3 0 0 1 0-6Z"/><path d="M18 15h.01"/></svg>',
   history: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 3v6h6"/><path d="M12 7v5l3 2"/></svg>',
   shield: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 13c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V5l8-3 8 3v8Z"/></svg>',
   bell: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 21a2 2 0 0 0 3.4 0"/><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/></svg>',
@@ -61,6 +68,7 @@ const routes = [
   ["members", "Members", icons.members],
   ["attendance", "Attendance", icons.calendar],
   ["measurements", "Measurements", icons.clipboard],
+  ["payments", "Payments", icons.wallet],
   ["rankings", "Rankings", icons.trophy],
   ["import", "Import", icons.upload],
   ["compliance", "Compliance", icons.check],
@@ -109,8 +117,23 @@ function applyData(data) {
   state.audit = data.audit || [];
   state.notifications = data.notifications || [];
   state.week = data.week || "";
-  if (state.user && state.user.role === "member" && !["dashboard", "history"].includes(state.route)) {
+  if (state.user && state.user.role === "member" && !["dashboard", "measurements", "history"].includes(state.route)) {
     state.route = "history";
+  }
+  if (state.user && state.user.role !== "admin" && state.route === "members") {
+    state.route = "dashboard";
+  }
+  if (state.user && !["admin", "supervisor"].includes(state.user.role) && state.route === "attendance") {
+    state.route = "dashboard";
+  }
+  if (state.user && state.user.role !== "admin" && state.route === "audit") {
+    state.route = "dashboard";
+  }
+  if (state.user && state.user.role !== "admin" && state.route === "compliance") {
+    state.route = "dashboard";
+  }
+  if (state.user && state.user.role !== "admin" && state.user.role !== "member" && state.route === "history") {
+    state.route = "dashboard";
   }
 }
 
@@ -228,19 +251,28 @@ function renderTopbarAction() {
 
 function navButtons(mobile) {
   const visibleRoutes = mobile
-    ? ["dashboard", "members", "attendance", "measurements", "history"]
-    : ["dashboard", "members", "attendance", "measurements", "rankings", "compliance", "history", "audit", "users"];
+    ? state.user.role === "admin"
+      ? ["dashboard", "members", "attendance", "payments", "history"]
+      : state.user.role === "member"
+        ? ["dashboard", "measurements", "history"]
+        : ["dashboard", "attendance", "measurements"]
+    : ["dashboard", "members", "attendance", "measurements", "payments", "rankings", "compliance", "history", "audit", "users"];
   return visibleRoutes
     .map((routeId) => routes.find(([id]) => id === routeId))
     .filter(Boolean)
     .filter(([id]) => {
-      if (state.user.role === "member") return ["dashboard", "history"].includes(id);
+      if (state.user.role === "member") return ["dashboard", "measurements", "history"].includes(id);
+      if (id === "members" && state.user.role !== "admin") return false;
+      if (id === "attendance" && !["admin", "supervisor"].includes(state.user.role)) return false;
+      if (id === "audit" && state.user.role !== "admin") return false;
+      if (id === "compliance" && state.user.role !== "admin") return false;
+      if (id === "history" && state.user.role !== "admin" && state.user.role !== "member") return false;
+      if (id === "payments" && state.user.role !== "admin") return false;
       if (id === "users" && state.user.role !== "admin") return false;
       return true;
     })
     .map(([id, label, icon]) => {
       const disabled =
-        (id === "audit" && state.user.role !== "admin") ||
         (id === "import" && !["admin", "supervisor"].includes(state.user.role)) ||
         (id === "attendance" && !["admin", "supervisor"].includes(state.user.role));
       return `<button class="${state.route === id ? "active" : ""}" data-route="${id}" ${disabled ? "disabled" : ""}>${icon}<span>${label}</span></button>`;
@@ -254,6 +286,7 @@ function pageSubtitle(route) {
     members: "Search, review, and manage nutrition club members",
     attendance: "Fast daily entry with card progress and payments",
     measurements: "Review weekly measurement entries and corrections",
+    payments: "Admin-only payment history and totals",
     rankings: "Week-over-week transformation scores",
     import: "Add weekly measurements from a spreadsheet",
     compliance: "Weekly measurement tracking and pending follow-ups",
@@ -271,6 +304,7 @@ function renderRoute() {
     members: renderMembers,
     attendance: renderAttendance,
     measurements: renderMeasurements,
+    payments: renderPaymentsPage,
     rankings: renderRankings,
     import: renderImport,
     compliance: renderCompliance,
@@ -360,7 +394,7 @@ function renderTransformationChampion(entry) {
           <div class="champion-medal">${icons.trophy}</div>
           <div>
             <h3>${escapeHtml(entry.member.name)}</h3>
-            <p>${escapeHtml(entry.member.phone)}</p>
+            <p>${memberContact(entry.member)}</p>
           </div>
           <span class="champion-badge">Champion</span>
         </div>
@@ -405,26 +439,37 @@ function renderTopPerformers(entries) {
 }
 
 function renderMembers() {
-  if (state.user.role === "member") return restricted("Members can view their own history and progress only.");
-  const filtered = state.members.filter((m) => m.name.toLowerCase().includes(state.query.toLowerCase()));
+  if (state.user.role !== "admin") return restricted("Only administrators can view the member directory.");
+  const filtered = state.members.filter((m) => {
+    const active = Number(m.active ?? 1) === 1;
+    const matchesQuery = m.name.toLowerCase().includes(state.query.toLowerCase());
+    return matchesQuery && (state.showHiddenMembers || active);
+  });
+  const hiddenCount = state.members.filter((m) => Number(m.active ?? 1) === 0).length;
   return `
     ${["admin", "supervisor"].includes(state.user.role) ? renderSingleMemberEntry() : ""}
     <div class="toolbar">
       <input class="search-input" id="memberSearch" value="${escapeHtml(state.query)}" placeholder="Search members" />
-      <span class="toolbar-note">${filtered.length} members visible</span>
+      <label class="toggle-field member-toggle">
+        <span class="label">Show Hidden Members</span>
+        <input id="showHiddenMembers" type="checkbox" ${state.showHiddenMembers ? "checked" : ""} />
+        <span class="toggle-switch" aria-hidden="true"></span>
+      </label>
+      <span class="toolbar-note">${filtered.length} visible${hiddenCount ? `, ${hiddenCount} hidden` : ""}</span>
     </div>
     <div class="member-list">${filtered.map(memberCard).join("") || empty("No members match your search.")}</div>
   `;
 }
 
 function renderSingleMemberEntry() {
+  const open = state.memberEntryOpen;
   return `
-    <article class="card single-entry-card">
-      <div class="section-heading">
+    <article class="card single-entry-card ${open ? "open" : "collapsed"}">
+      <button class="section-heading collapsible-heading" type="button" data-action="toggle-member-entry" aria-expanded="${open}">
         <div><h2>Single Member Entry</h2><p>Add one member at a time. Bulk import remains available on Import.</p></div>
-        ${icons.user}
-      </div>
-      <form id="memberForm" class="form-grid">
+        <span class="collapse-indicator">${open ? "Hide" : "Add Member"}</span>
+      </button>
+      ${open ? `<form id="memberForm" class="form-grid">
         <label><span class="label">First Name</span><input name="firstName" placeholder="First name" required /></label>
         <label><span class="label">Last Name</span><input name="lastName" placeholder="Last name" /></label>
         <label><span class="label">Mobile Number</span><input name="phone" type="tel" placeholder="Phone number" required /></label>
@@ -440,7 +485,7 @@ function renderSingleMemberEntry() {
         </div>
         <label class="wide"><span class="label">Notes</span><textarea name="notes" rows="2" placeholder="Optional notes"></textarea></label>
         <div class="wide modal-actions"><button class="btn btn-primary" type="submit">${icons.plus} Save Member</button></div>
-      </form>
+      </form>` : ""}
     </article>
   `;
 }
@@ -452,6 +497,7 @@ function renderAttendance() {
   const selected = selectedAttendanceMember(filtered);
   const card = selected ? activeCardFor(selected.id) : null;
   const progress = card ? Math.round((Number(card.completed_visits) / Number(card.target_visits)) * 100) : 0;
+  const attendancePlaceholder = state.user.role === "admin" ? "Search by name, mobile, or member ID" : "Search by name or member ID";
   const recent = state.attendance.slice(0, 10);
   return `
     <div class="attendance-layout">
@@ -460,7 +506,7 @@ function renderAttendance() {
         <div class="attendance-search">
           <label class="field wide">
             <span class="label">Search Member</span>
-            <input class="search-input" id="attendanceSearch" value="${escapeHtml(state.query)}" placeholder="Search by name, mobile, or member ID" />
+            <input class="search-input" id="attendanceSearch" value="${escapeHtml(state.query)}" placeholder="${attendancePlaceholder}" />
           </label>
           <div class="attendance-results">
             ${filtered.map((member) => attendanceResult(member, selected?.id === member.id)).join("") || empty("No matching members found.")}
@@ -471,9 +517,9 @@ function renderAttendance() {
             <div>
               <span class="label">Active Card</span>
               <h3>${card ? `${escapeHtml(card.card_type)} - ${escapeHtml(card.card_number)}` : "No active card"}</h3>
-              <p>${escapeHtml(selected.phone)} - ${escapeHtml(card?.club || "Main Nutrition Club")}</p>
+              <p>${memberContact(selected)} - ${escapeHtml(card?.club || "Main Nutrition Club")}</p>
             </div>
-            ${card ? `<div class="card-progress"><strong>${card.completed_visits} / ${card.target_visits}</strong><span>${card.remaining_visits} visits remaining</span><div class="progress-track"><i style="width:${progress}%"></i></div></div>` : `<span class="badge badge-red">Create card required</span>`}
+            ${card ? `<div class="card-progress"><strong>${card.remaining_visits} left</strong><span>${card.completed_visits} / ${card.target_visits} visits used</span><div class="progress-track"><i style="width:${progress}%"></i></div></div>` : `<span class="badge badge-red">Create card required</span>`}
           </div>
           <form id="attendanceForm" class="attendance-form">
             <input type="hidden" name="memberId" value="${selected.id}" />
@@ -510,8 +556,8 @@ function attendanceResult(member, selected) {
   return `
     <button class="attendance-result ${selected ? "selected" : ""}" data-action="select-attendance-member" data-member-id="${member.id}">
       <span class="avatar">${member.name[0]}</span>
-      <span><strong>${escapeHtml(member.name)}</strong><small>ID ${member.id} - ${escapeHtml(member.phone)}</small></span>
-      <em>${card ? `${card.completed_visits}/${card.target_visits}` : "No card"}</em>
+      <span><strong>${escapeHtml(member.name)}</strong><small>${memberContact(member)}</small></span>
+      <em>${card ? `${card.remaining_visits} left` : "No card"}</em>
     </button>
   `;
 }
@@ -534,15 +580,17 @@ function renderUpcomingCards() {
 function renderMeasurements() {
   if (state.user.role === "member") return renderMemberMeasurements();
   const canAddMeasurement = canAddMeasurements();
+  const measurementPlaceholder = state.user.role === "admin" ? "Search measurements by member name, mobile, or ID" : "Search measurements by member name or ID";
   const measurementRows = state.measurements.filter((m) => {
     const query = state.query.toLowerCase();
     const member = state.members.find((item) => Number(item.id) === Number(m.member_id));
-    return !query || [m.member_name, String(m.member_id), m.week_number, member?.phone].some((value) => String(value || "").toLowerCase().includes(query));
+    const searchable = state.user.role === "admin" ? [m.member_name, String(m.member_id), m.week_number, member?.phone] : [m.member_name, String(m.member_id), m.week_number];
+    return !query || searchable.some((value) => String(value || "").toLowerCase().includes(query));
   });
   return `
     ${renderSessionControl()}
     <div class="toolbar">
-      <input class="search-input" id="measurementSearch" value="${escapeHtml(state.query)}" placeholder="Search measurements by member name, mobile, or ID" />
+      <input class="search-input" id="measurementSearch" value="${escapeHtml(state.query)}" placeholder="${measurementPlaceholder}" />
       ${canAddMeasurement ? `<button class="btn btn-primary" data-action="add-measurement">${icons.plus} Add Measurement</button>` : `<span class="session-message">Existing measurements are read-only until Admin opens the session.</span>`}
     </div>
     <p class="toolbar-note">${measurementRows.length} visible entries from full measurement history</p>
@@ -556,15 +604,8 @@ function renderMeasurements() {
 }
 
 function renderMemberMeasurements() {
-  return `
-    ${renderMemberDashboard()}
-    <div class="table-card member-history-table">
-      <table>
-        <thead><tr><th>Week</th><th>Weight</th><th>Body Fat</th><th>Muscle</th><th>BMI</th><th>Date</th><th>Notes</th></tr></thead>
-        <tbody>${state.measurements.map((m) => `<tr><td>${m.week_number}</td><td>${m.weight} kg</td><td>${m.body_fat}%</td><td>${m.muscle_mass} kg</td><td>${m.bmi}</td><td>${m.measurement_date}</td><td>${escapeHtml(m.notes || "-")}</td></tr>`).join("") || `<tr><td colspan="7">${empty("No saved measurement entries yet.")}</td></tr>`}</tbody>
-      </table>
-    </div>
-  `;
+  state.profileMemberId = state.user.member_id || state.members[0]?.id || "";
+  return renderMemberProfile();
 }
 
 function renderRankings() {
@@ -656,6 +697,7 @@ function rankingItem(entry, index, metricLabel, badgeFactory, valueFactory) {
 function renderImport() {
   if (!["admin", "supervisor"].includes(state.user.role)) return restricted("Only supervisors and admins can import data.");
   const canAddMeasurement = canAddMeasurements();
+  const lookupText = state.user.role === "admin" ? "Search an existing member by name or phone." : "Search an existing member by name or member ID.";
   return `
     <article class="card add-member-entry-card">
       <div class="section-heading">
@@ -669,7 +711,7 @@ function renderImport() {
       </div>
       <div class="import-box compact">
         <h2>Manual single entry</h2>
-        <p class="footnote">Search an existing member by name or phone. If no match exists, save this entry as a new member.</p>
+        <p class="footnote">${lookupText} If no match exists, save this entry as a new member.</p>
         ${canAddMeasurement ? `<button class="btn btn-primary" data-action="add-measurement">${icons.plus} Create Member & Save Entry</button>` : `<span class="session-message">Measurement session has not been opened by the Admin for this week.</span>`}
       </div>
     </article>
@@ -771,48 +813,158 @@ function uniqueAuditTypes() {
   return [...new Set(combined)].sort();
 }
 
+function renderPaymentsPage() {
+  if (state.user.role !== "admin") return restricted("Only administrators can view payments.");
+  const selectedMember = state.members.find((member) => String(member.id) === String(state.paymentFilters.memberId));
+  const entries = state.paymentEntries;
+  const cardTypes = paymentCardTypeOptions();
+  return `
+    <div class="payments-page">
+      <article class="card audit-filter-card">
+        <div class="section-heading">
+          <div><h2>Payments</h2><p>Latest 20 payments are shown by default. Filter by date, card type, or member.</p></div>
+          ${icons.wallet}
+        </div>
+        ${selectedMember ? `
+          <div class="selected-filter">
+            <span>Showing payments for <strong>${escapeHtml(selectedMember.name)}</strong></span>
+            <button class="btn btn-outline mini" data-action="clear-payment-member" type="button">Show All Members</button>
+          </div>
+        ` : ""}
+        <form id="paymentFilterForm" class="form-grid">
+          <label><span class="label">From Date</span><input name="from" type="date" value="${escapeHtml(state.paymentFilters.from)}" /></label>
+          <label><span class="label">To Date</span><input name="to" type="date" value="${escapeHtml(state.paymentFilters.to)}" /></label>
+          <label><span class="label">Card Type</span>
+            <select name="cardType">
+              <option value="">All card types</option>
+              ${cardTypes.map((type) => `<option value="${escapeHtml(type)}" ${state.paymentFilters.cardType === type ? "selected" : ""}>${escapeHtml(type)}</option>`).join("")}
+            </select>
+          </label>
+          <div class="payment-filter-actions">
+            <label class="toggle-field">
+              <span class="label">Show Sum</span>
+              <input id="paymentShowSum" name="showSum" type="checkbox" ${state.paymentFilters.showSum ? "checked" : ""} />
+              <span class="toggle-switch" aria-hidden="true"></span>
+            </label>
+            <button class="btn btn-outline" id="paymentClearButton" type="button">Clear</button>
+            <button class="btn btn-primary" id="paymentApplyButton" type="button">${icons.check} Apply Filters</button>
+          </div>
+        </form>
+      </article>
+      ${state.paymentFilters.showSum ? `
+        <div class="dashboard-metrics grid payment-total-grid">
+          ${dashboardMetric("Total Payments", formatCurrency(state.paymentTotal), `${entries.length} result${entries.length === 1 ? "" : "s"}`, icons.wallet, "bg-emerald")}
+        </div>
+      ` : ""}
+      <div class="table-card payments-table">
+        <table>
+          <thead><tr><th>Date</th><th>Member</th><th>Card Type</th><th>Payment Type</th><th>Amount</th><th>Recorded By</th><th>Created</th><th>Notes</th></tr></thead>
+          <tbody>${entries.map(paymentRow).join("") || `<tr><td colspan="8">${empty("No payments match the selected filters.")}</td></tr>`}</tbody>
+          ${state.paymentFilters.showSum && entries.length ? `<tfoot><tr><td colspan="4"><strong>Total</strong></td><td><strong>${formatCurrency(state.paymentTotal)}</strong></td><td colspan="3"></td></tr></tfoot>` : ""}
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function paymentRow(row) {
+  return `
+    <tr>
+      <td>${escapeHtml(row.payment_date)}</td>
+      <td><button class="table-member-link" data-action="select-payment-member" data-member-id="${row.member_id}">${escapeHtml(row.member_name)}</button></td>
+      <td>${escapeHtml(row.card_type || "-")}</td>
+      <td><span class="mini-badge">${escapeHtml(row.payment_mode)}</span></td>
+      <td><strong>${formatCurrency(row.amount)}</strong></td>
+      <td>${escapeHtml(row.created_by)}</td>
+      <td>${escapeHtml(row.created_date)}</td>
+      <td>${escapeHtml(row.notes || "-")}</td>
+    </tr>
+  `;
+}
+
+function paymentCardTypeOptions() {
+  const combined = [...state.paymentCardTypes, ...state.cards.map((card) => card.card_type)].filter(Boolean);
+  return [...new Set(combined)].sort();
+}
+
 function renderMemberProfile() {
   const member = state.members.find((m) => Number(m.id) === Number(state.profileMemberId)) || state.members[0];
   if (!member) return empty("No member selected.");
+  if (state.user.role !== "admin" && Number(state.user.member_id) !== Number(member.id)) {
+    return restricted("Only administrators can view member profiles.");
+  }
   const card = activeCardFor(member.id);
   const memberMeasurements = measurementsFor(member.id);
   const latest = memberMeasurements[0];
   const attendance = state.attendance.filter((row) => Number(row.member_id) === Number(member.id)).slice(0, 8);
   const payments = state.payments.filter((row) => Number(row.member_id) === Number(member.id)).slice(0, 8);
+  const canAddCardPayment = state.user.role === "admin";
+  const canAddProfileMeasurement = state.user.role === "admin";
+  const memberActive = Number(member.active ?? 1) === 1;
   return `
     <div class="profile-page">
       <article class="card profile-summary">
         <div class="section-heading">
-          <div><h2>${escapeHtml(member.name)}</h2><p>${escapeHtml(member.phone)} - ${escapeHtml(member.nutrition_club || "Main Nutrition Club")}</p></div>
-          ${goalBadge(member.goal)}
+          <div><h2>${escapeHtml(member.name)}</h2><p>${memberContact(member)} - ${escapeHtml(member.nutrition_club || "Main Nutrition Club")}</p></div>
+          <div class="profile-actions">${goalBadge(member.goal)}${state.user.role === "admin" ? `<button class="btn btn-outline mini" data-action="set-member-status" data-member-id="${member.id}" data-active="${memberActive ? "0" : "1"}">${memberActive ? "Hide Member" : "Make Active"}</button>` : ""}</div>
         </div>
         <div class="stats-grid grid">
           ${stat("Current Card", card ? card.card_type : "None", card ? `${card.completed_visits}/${card.target_visits} visits` : "No active card", icons.clipboard, "bg-primary")}
+          ${stat("Remaining Visits", card ? card.remaining_visits : "-", card ? card.status : "No active card", icons.clock, Number(card?.remaining_visits || 0) <= 3 ? "bg-amber" : "bg-emerald")}
           ${stat("Latest Weight", latest ? `${latest.weight} kg` : "-", latest ? latest.measurement_date : "No measurement", icons.activity, "bg-emerald")}
           ${stat("Body Fat", latest ? `${latest.body_fat}%` : "-", "latest", icons.target, "bg-violet")}
           ${stat("BMI", latest ? latest.bmi : "-", "auto calculated", icons.check, "bg-blue")}
         </div>
       </article>
+      ${canAddCardPayment ? renderCardPaymentForm(member, card) : ""}
       <div class="two-col grid">
-        <article class="table-card">
-          <div class="dashboard-table-heading"><h2 class="dashboard-section-title">Measurement History</h2><button class="btn btn-outline mini" data-action="add-measurement" data-member-id="${member.id}">Add Measurement</button></div>
+        <article class="table-card profile-history-card">
+          <div class="dashboard-table-heading"><h2 class="dashboard-section-title">Measurement History</h2>${canAddProfileMeasurement ? `<button class="btn btn-outline mini" data-action="add-measurement" data-member-id="${member.id}">Add Measurement</button>` : ""}</div>
           <table>
             <thead><tr><th>Date</th><th>Weight</th><th>Fat %</th><th>Muscle</th><th>VF</th><th>BMI</th><th>BMR</th><th>Change</th></tr></thead>
             <tbody>${memberMeasurements.map((row, index) => measurementHistoryRow(row, memberMeasurements[index + 1])).join("") || `<tr><td colspan="8">${empty("No measurements yet.")}</td></tr>`}</tbody>
           </table>
         </article>
         <div class="profile-side">
-          <article class="table-card">
+          <article class="table-card profile-history-card">
             <div class="dashboard-table-heading"><h2 class="dashboard-section-title">Attendance History</h2></div>
             <table><thead><tr><th>Date</th><th>Type</th><th>Count</th></tr></thead><tbody>${attendance.map((row) => `<tr><td>${row.attendance_date}</td><td>${escapeHtml(row.attendance_type)}</td><td>${row.neutral_day ? "Neutral" : row.count_value}</td></tr>`).join("") || `<tr><td colspan="3">${empty("No attendance yet.")}</td></tr>`}</tbody></table>
           </article>
-          <article class="table-card">
+          <article class="table-card profile-history-card">
             <div class="dashboard-table-heading"><h2 class="dashboard-section-title">Payment History</h2></div>
-            <table><thead><tr><th>Date</th><th>Amount</th><th>Mode</th></tr></thead><tbody>${payments.map((row) => `<tr><td>${row.payment_date}</td><td>${Number(row.amount).toFixed(0)}</td><td>${escapeHtml(row.payment_mode)}</td></tr>`).join("") || `<tr><td colspan="3">${empty("No payments yet.")}</td></tr>`}</tbody></table>
+            <table><thead><tr><th>Date</th><th>Card</th><th>Amount</th><th>Mode</th></tr></thead><tbody>${payments.map((row) => `<tr><td>${row.payment_date}</td><td>${escapeHtml(row.card_type || "-")}</td><td>${formatCurrency(row.amount)}</td><td>${escapeHtml(row.payment_mode)}</td></tr>`).join("") || `<tr><td colspan="4">${empty("No payments yet.")}</td></tr>`}</tbody></table>
           </article>
         </div>
       </div>
     </div>
+  `;
+}
+
+function renderCardPaymentForm(member, card) {
+  const today = new Date().toISOString().slice(0, 10);
+  return `
+    <article class="card card-payment-card">
+      <div class="section-heading">
+        <div><h2>Add Card Payment</h2><p>Record payment for a Trial, 26 Days, or 30 Days card purchase.</p></div>
+        ${icons.wallet}
+      </div>
+      <form id="cardPaymentForm" class="form-grid">
+        <input type="hidden" name="memberId" value="${member.id}" />
+        <label><span class="label">Payment Date</span><input name="paymentDate" type="date" value="${today}" required /></label>
+        <label><span class="label">Card Type</span>${cardTypeSelect(card?.card_type || member.card_type || "Trial Card")}</label>
+        <label><span class="label">Amount</span><input name="amount" type="number" min="1" step="1" placeholder="Enter amount" required /></label>
+        <label><span class="label">Payment Type</span>${paymentModeSelect()}</label>
+        <label class="toggle-field">
+          <span class="label">Create New Card</span>
+          <input name="createCard" type="checkbox" checked />
+          <span class="toggle-switch" aria-hidden="true"></span>
+        </label>
+        <label class="wide"><span class="label">Notes</span><textarea name="notes" rows="2" placeholder="Optional receipt or card notes"></textarea></label>
+        <div class="wide modal-actions">
+          <button class="btn btn-primary" type="submit">${icons.wallet} Save Card Payment</button>
+        </div>
+      </form>
+    </article>
   `;
 }
 
@@ -927,6 +1079,8 @@ function renderMeasurementModal(modalValue = "") {
   const selected = state.members.find((m) => Number(m.id) === Number(selectedMember)) || null;
   const nameParts = selected ? splitMemberName(selected.name) : { first: "", last: "" };
   const value = (name, fallback = "") => existing?.[name] ?? fallback;
+  const canViewPhones = state.user.role === "admin";
+  const measurementSearchPlaceholder = canViewPhones ? "Search by member name or phone number" : "Search by member name or ID";
   const memberResults = state.members.map((m) => {
     const parts = splitMemberName(m.name);
     const lastMeasurement = latestMeasurementFor(m.id);
@@ -936,13 +1090,13 @@ function renderMeasurementModal(modalValue = "") {
         data-member-id="${m.id}"
         data-first-name="${escapeHtml(parts.first)}"
         data-last-name="${escapeHtml(parts.last)}"
-        data-phone="${escapeHtml(m.phone)}"
+        data-phone="${canViewPhones ? escapeHtml(m.phone) : ""}"
         data-gender="${escapeHtml(m.gender || "")}"
         data-height="${escapeHtml(m.height || lastMeasurement?.height || "")}"
         data-nutrition-club="${escapeHtml(m.nutrition_club || "Main Nutrition Club")}"
         data-goal="${escapeHtml(m.goal)}">
         <span class="avatar">${m.name[0]}</span>
-        <span><strong>${escapeHtml(m.name)}</strong><small>ID ${m.id} - ${escapeHtml(m.phone)}</small></span>
+        <span><strong>${escapeHtml(m.name)}</strong><small>${memberContact(m)}</small></span>
         ${goalBadge(m.goal)}
       </button>
     `;
@@ -962,11 +1116,11 @@ function renderMeasurementModal(modalValue = "") {
           <button type="button">Image / OCR</button>
         </div>
         <div class="form-grid">
-          <label class="wide"><span class="label">Search Member</span><input id="measurementMemberSearch" placeholder="Search by member name or phone number" value="${selected ? escapeHtml(selected.name) : ""}" /></label>
+          <label class="wide"><span class="label">Search Member</span><input id="measurementMemberSearch" placeholder="${measurementSearchPlaceholder}" value="${selected ? escapeHtml(selected.name) : ""}" /></label>
           <div class="wide lookup-results" id="measurementLookupResults">${memberResults}</div>
           <label><span class="label">First Name</span><input name="firstName" id="measurementFirstName" value="${escapeHtml(nameParts.first)}" placeholder="First name" /></label>
           <label><span class="label">Last Name</span><input name="lastName" id="measurementLastName" value="${escapeHtml(nameParts.last)}" placeholder="Last name" /></label>
-          <label><span class="label">Phone Number</span><input name="phone" id="measurementPhone" type="tel" value="${escapeHtml(selected?.phone || "")}" placeholder="Phone number" /></label>
+          <label><span class="label">Phone Number</span><input name="phone" id="measurementPhone" type="tel" value="${canViewPhones ? escapeHtml(selected?.phone || "") : ""}" placeholder="${canViewPhones ? "Phone number" : "Hidden for privacy"}" /></label>
           <label><span class="label">Nutrition Club</span><input name="nutritionClub" id="measurementNutritionClub" value="${escapeHtml(selected?.nutrition_club || "Main Nutrition Club")}" /></label>
           <label><span class="label">Member ID</span><input name="memberCode" value="${selected ? selected.id : ""}" placeholder="e.g. SIV3210" /></label>
           <label><span class="label">Measurement Date</span><input name="measurementDate" type="date" value="${new Date().toISOString().slice(0, 10)}" /></label>
@@ -1205,8 +1359,9 @@ function splitMemberName(name = "") {
 
 function attendanceSearchResults() {
   const query = state.query.trim().toLowerCase();
+  const searchable = (member) => state.user.role === "admin" ? [member.name, member.phone, String(member.id)] : [member.name, String(member.id)];
   const members = query
-    ? state.members.filter((member) => [member.name, member.phone, String(member.id)].some((value) => String(value).toLowerCase().includes(query)))
+    ? state.members.filter((member) => searchable(member).some((value) => String(value).toLowerCase().includes(query)))
     : state.members;
   return members;
 }
@@ -1228,13 +1383,13 @@ function goalOptions() {
 }
 
 function paymentModeSelect() {
-  const modes = ["Cash", "PhonePe", "Google Pay", "UPI", "Bank Transfer"];
+  const modes = ["Cash", "PhonePay", "Google Pay", "Credit Card", "Debit Card"];
   return `<select name="paymentMode">${modes.map((mode) => `<option>${mode}</option>`).join("")}</select>`;
 }
 
-function cardTypeSelect() {
+function cardTypeSelect(selected = "") {
   const types = ["Complimentary Card", "Trial Card", "10 Days Card / NMS", "26 Days Card", "30 Days Card"];
-  return `<select name="cardType">${types.map((type) => `<option>${type}</option>`).join("")}</select>`;
+  return `<select name="cardType">${types.map((type) => `<option ${selected === type ? "selected" : ""}>${type}</option>`).join("")}</select>`;
 }
 
 function currentFromBaseline(memberId, baseline) {
@@ -1268,17 +1423,32 @@ function formatSigned(value) {
   return `${rounded > 0 ? "+" : ""}${rounded.toFixed(1)}`;
 }
 
+function formatCurrency(value) {
+  return `Rs ${Number(value || 0).toFixed(0)}`;
+}
+
+function memberContact(member) {
+  if (state.user?.role === "admin" && member?.phone) return escapeHtml(member.phone);
+  return `ID ${escapeHtml(member?.id || "")}`;
+}
+
 function memberCard(m) {
   const progress = goalProgress(m);
+  const active = Number(m.active ?? 1) === 1;
   return `
-    <article class="member-row">
+    <article class="member-row clickable-row ${active ? "" : "inactive-member"}" data-action="view-profile" data-member-id="${m.id}">
       <div class="avatar">${m.name[0]}</div>
       <div>
         <h3>${escapeHtml(m.name)}</h3>
-        <p>${escapeHtml(m.phone)} - Last measured: ${m.last_measured}</p>
-        <div class="badges">${goalBadge(m.goal)}<span class="badge badge-violet">Goal Score ${progress.score}</span>${m.marathon ? `<span class="badge badge-amber">${icons.trophy} Marathon</span>` : ""}${m.measured ? `<span class="badge badge-emerald">Measured</span>` : `<span class="badge badge-red">Pending</span>`}</div>
+        <p>${memberContact(m)} - Last measured: ${m.last_measured}</p>
+        <div class="badges">${goalBadge(m.goal)}<span class="badge badge-violet">Goal Score ${progress.score}</span>${active ? "" : `<span class="badge badge-red">Hidden</span>`}${m.marathon ? `<span class="badge badge-amber">${icons.trophy} Marathon</span>` : ""}${m.measured ? `<span class="badge badge-emerald">Measured</span>` : `<span class="badge badge-red">Pending</span>`}</div>
       </div>
-      <div class="rank-score"><strong>${progress.score}</strong><span>${escapeHtml(progress.driver)}</span><button class="btn btn-outline mini" data-action="view-profile" data-member-id="${m.id}">History</button></div>
+      <div class="rank-score">
+        <strong>${progress.score}</strong>
+        <span>${escapeHtml(progress.driver)}</span>
+        <button class="btn btn-outline mini" data-action="view-profile" data-member-id="${m.id}">History</button>
+        <button class="btn btn-outline mini" data-action="set-member-status" data-member-id="${m.id}" data-active="${active ? "0" : "1"}">${active ? "Hide" : "Make Active"}</button>
+      </div>
     </article>
   `;
 }
@@ -1382,10 +1552,30 @@ function bindEvents() {
   document.querySelectorAll("[data-route]").forEach((button) => button.addEventListener("click", changeRoute));
   document.querySelectorAll("[data-action]").forEach((button) => button.addEventListener("click", handleAction));
   document.querySelector("#auditFilterForm")?.addEventListener("submit", applyAuditFilters);
+  document.querySelector("#paymentFilterForm")?.addEventListener("submit", applyPaymentFilters);
+  document.querySelector("#paymentApplyButton")?.addEventListener("click", applyPaymentFilters);
+  document.querySelector("#paymentClearButton")?.addEventListener("click", clearPaymentFilters);
+  document.querySelector("#paymentShowSum")?.addEventListener("change", (event) => {
+    const form = document.querySelector("#paymentFilterForm");
+    const formData = form ? Object.fromEntries(new FormData(form).entries()) : {};
+    state.paymentFilters = {
+      ...state.paymentFilters,
+      from: formData.from || "",
+      to: formData.to || "",
+      cardType: formData.cardType || "",
+      showSum: event.target.checked,
+    };
+    render();
+  });
   document.querySelector("#memberForm")?.addEventListener("submit", saveMember);
   document.querySelector("#userForm")?.addEventListener("submit", saveUser);
   document.querySelector("#measurementForm")?.addEventListener("submit", saveMeasurement);
   document.querySelector("#attendanceForm")?.addEventListener("submit", saveAttendance);
+  document.querySelector("#cardPaymentForm")?.addEventListener("submit", saveCardPayment);
+  document.querySelector("#showHiddenMembers")?.addEventListener("change", (event) => {
+    state.showHiddenMembers = event.target.checked;
+    render();
+  });
   document.querySelector("#memberSearch")?.addEventListener("input", (event) => {
     state.query = event.target.value;
     render();
@@ -1488,10 +1678,18 @@ async function changeRoute(event) {
       showToast(error.message);
     }
   }
+  if (route === "payments" && state.user.role === "admin") {
+    try {
+      await loadPaymentEntries();
+    } catch (error) {
+      showToast(error.message);
+    }
+  }
   render();
 }
 
 async function handleAction(event) {
+  event.stopPropagation();
   const action = event.currentTarget.dataset.action;
   try {
     if (action === "logout") {
@@ -1513,6 +1711,32 @@ async function handleAction(event) {
       showToast("Audit filters cleared.");
       return;
     }
+    if (action === "toggle-member-entry") {
+      state.memberEntryOpen = !state.memberEntryOpen;
+      render();
+      return;
+    }
+    if (action === "clear-payment-filters") {
+      state.paymentFilters = { from: "", to: "", cardType: "", memberId: "", showSum: false };
+      await loadPaymentEntries();
+      render();
+      showToast("Payment filters cleared.");
+      return;
+    }
+    if (action === "clear-payment-member") {
+      state.paymentFilters.memberId = "";
+      await loadPaymentEntries();
+      render();
+      showToast("Showing all members.");
+      return;
+    }
+    if (action === "select-payment-member") {
+      state.paymentFilters.memberId = event.currentTarget.dataset.memberId || "";
+      await loadPaymentEntries();
+      render();
+      showToast("Member payments loaded.");
+      return;
+    }
     if (action === "delete-user") {
       const targetUserId = event.currentTarget.dataset.userId;
       if (targetUserId === state.user.id) return showToast("You cannot delete your own user account.");
@@ -1523,6 +1747,18 @@ async function handleAction(event) {
       applyData(data);
       render();
       showToast("User removed.");
+      return;
+    }
+    if (action === "set-member-status") {
+      const memberId = event.currentTarget.dataset.memberId;
+      const active = event.currentTarget.dataset.active === "1";
+      const data = await api("/api/members/status", {
+        method: "POST",
+        body: JSON.stringify({ userId: state.user.id, memberId, active }),
+      });
+      applyData(data);
+      render();
+      showToast(active ? "Member made active." : "Member hidden.");
       return;
     }
     if (action === "select-attendance-member") {
@@ -1587,6 +1823,38 @@ async function applyAuditFilters(event) {
   }
 }
 
+async function applyPaymentFilters(event) {
+  event.preventDefault();
+  const form = document.querySelector("#paymentFilterForm");
+  const formData = form ? Object.fromEntries(new FormData(form).entries()) : {};
+  state.paymentFilters = {
+    ...state.paymentFilters,
+    from: formData.from || "",
+    to: formData.to || "",
+    cardType: formData.cardType || "",
+    showSum: !!document.querySelector("#paymentShowSum")?.checked,
+  };
+  try {
+    await loadPaymentEntries();
+    render();
+    showToast("Payments filtered.");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function clearPaymentFilters(event) {
+  event?.preventDefault?.();
+  state.paymentFilters = { from: "", to: "", cardType: "", memberId: "", showSum: false };
+  try {
+    await loadPaymentEntries();
+    render();
+    showToast("Payment filters cleared.");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
 async function loadAuditEntries() {
   const params = new URLSearchParams({
     userId: state.user.id,
@@ -1600,6 +1868,20 @@ async function loadAuditEntries() {
   state.auditTypes = data.types || [];
 }
 
+async function loadPaymentEntries() {
+  const params = new URLSearchParams({
+    userId: state.user.id,
+  });
+  if (state.paymentFilters.from) params.set("from", state.paymentFilters.from);
+  if (state.paymentFilters.to) params.set("to", state.paymentFilters.to);
+  if (state.paymentFilters.cardType) params.set("cardType", state.paymentFilters.cardType);
+  if (state.paymentFilters.memberId) params.set("memberId", state.paymentFilters.memberId);
+  const data = await api(`/api/payments?${params.toString()}`);
+  state.paymentEntries = data.entries || [];
+  state.paymentCardTypes = data.cardTypes || [];
+  state.paymentTotal = Number(data.total || 0);
+}
+
 async function postAndApply(path, message) {
   const data = await api(path, { method: "POST", body: JSON.stringify({ userId: state.user.id }) });
   applyData(data);
@@ -1610,6 +1892,8 @@ async function postAndApply(path, message) {
 async function refreshData(message = "") {
   const data = await api(`/api/bootstrap?userId=${encodeURIComponent(state.user.id)}`);
   applyData(data);
+  if (state.route === "payments" && state.user.role === "admin") await loadPaymentEntries();
+  if (state.route === "audit" && state.user.role === "admin") await loadAuditEntries();
   render();
   if (message) showToast(message);
 }
@@ -1643,7 +1927,10 @@ async function saveMember(event) {
       body: JSON.stringify({ userId: state.user.id, member }),
     });
     applyData(data);
-    form.reset();
+    state.route = "members";
+    state.query = "";
+    state.showHiddenMembers = false;
+    state.memberEntryOpen = false;
     render();
     showToast("Member saved. Existing mobile numbers are reused.");
   } catch (error) {
@@ -1680,8 +1967,29 @@ async function saveAttendance(event) {
     });
     applyData(data);
     state.attendanceMemberId = attendance.memberId;
+    const updatedCard = activeCardFor(attendance.memberId);
     render();
-    showToast("Attendance saved to SQLite.");
+    showToast(updatedCard ? `Attendance saved. ${updatedCard.remaining_visits} visits remaining.` : "Attendance saved to SQLite.");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function saveCardPayment(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const payment = Object.fromEntries(new FormData(form).entries());
+  payment.createCard = payment.createCard === "on";
+  try {
+    const data = await api("/api/card-payment", {
+      method: "POST",
+      body: JSON.stringify({ userId: state.user.id, payment }),
+    });
+    applyData(data);
+    state.profileMemberId = payment.memberId;
+    state.route = "profile";
+    render();
+    showToast("Card payment saved.");
   } catch (error) {
     showToast(error.message);
   }

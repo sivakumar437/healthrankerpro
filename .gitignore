@@ -9,3 +9,4 @@ app.db-journal
 *.db-shm
 data/
 .env
+*.log

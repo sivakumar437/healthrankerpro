@@ -51,6 +51,16 @@ def rows_to_list(rows: list[sqlite3.Row]) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+def redact_member_phones(members: list[dict[str, Any]], user: dict[str, Any]) -> list[dict[str, Any]]:
+    if user["role"] in {"admin", "super_admin"}:
+        return members
+    for member in members:
+        if user["role"] == "member" and user.get("member_id") == member.get("id"):
+            continue
+        member["phone"] = ""
+    return members
+
+
 def init_db() -> None:
     with connect() as db:
         db.executescript(
@@ -188,6 +198,7 @@ def init_db() -> None:
               member_name TEXT NOT NULL,
               club TEXT NOT NULL,
               attendance_id INTEGER,
+              card_id INTEGER,
               payment_date TEXT NOT NULL,
               amount REAL NOT NULL,
               payment_mode TEXT NOT NULL,
@@ -216,6 +227,7 @@ def migrate_schema(db: sqlite3.Connection) -> None:
             "nutrition_club": "TEXT NOT NULL DEFAULT 'Main Nutrition Club'",
             "card_type": "TEXT DEFAULT 'Trial Card'",
             "notes": "TEXT DEFAULT ''",
+            "active": "INTEGER NOT NULL DEFAULT 1",
         },
     )
     ensure_columns(
@@ -224,6 +236,13 @@ def migrate_schema(db: sqlite3.Connection) -> None:
         {
             "bmr": "REAL DEFAULT 0",
             "subcutaneous_fat": "REAL DEFAULT 0",
+        },
+    )
+    ensure_columns(
+        db,
+        "payments",
+        {
+            "card_id": "INTEGER",
         },
     )
 
@@ -322,7 +341,7 @@ def scoped_members(db: sqlite3.Connection, user: dict[str, Any]) -> list[dict[st
         rows = db.execute("SELECT * FROM members ORDER BY rank").fetchall()
     else:
         rows = db.execute("SELECT * FROM members WHERE nutrition_club = ? ORDER BY rank", (current_club(user),)).fetchall()
-    return rows_to_list(rows)
+    return redact_member_phones(rows_to_list(rows), user)
 
 
 def scoped_measurements(db: sqlite3.Connection, user: dict[str, Any]) -> list[dict[str, Any]]:
@@ -385,20 +404,96 @@ def scoped_attendance(db: sqlite3.Connection, user: dict[str, Any]) -> list[dict
 
 def scoped_payments(db: sqlite3.Connection, user: dict[str, Any]) -> list[dict[str, Any]]:
     if user["role"] == "member":
-        rows = db.execute("SELECT * FROM payments WHERE member_id = ? ORDER BY payment_date DESC, id DESC LIMIT 80", (user["member_id"],)).fetchall()
+        rows = db.execute(
+            """
+            SELECT p.*, COALESCE(c.card_type, ac.card_type, '') AS card_type,
+                   COALESCE(c.card_number, ac.card_number, '') AS card_number
+            FROM payments p
+            LEFT JOIN membership_cards c ON p.card_id = c.id
+            LEFT JOIN attendance a ON p.attendance_id = a.id
+            LEFT JOIN membership_cards ac ON a.card_id = ac.id
+            WHERE p.member_id = ?
+            ORDER BY p.payment_date DESC, p.id DESC LIMIT 80
+            """,
+            (user["member_id"],),
+        ).fetchall()
     elif user["role"] == "supervisor":
         rows = db.execute(
             """
-            SELECT p.* FROM payments p
+            SELECT p.*, COALESCE(c.card_type, ac.card_type, '') AS card_type,
+                   COALESCE(c.card_number, ac.card_number, '') AS card_number
+            FROM payments p
             JOIN members m ON m.id = p.member_id
+            LEFT JOIN membership_cards c ON p.card_id = c.id
+            LEFT JOIN attendance a ON p.attendance_id = a.id
+            LEFT JOIN membership_cards ac ON a.card_id = ac.id
             WHERE m.supervisor_id = ?
             ORDER BY p.payment_date DESC, p.id DESC LIMIT 80
             """,
             (user["id"],),
         ).fetchall()
     else:
-        rows = db.execute("SELECT * FROM payments ORDER BY payment_date DESC, id DESC LIMIT 120").fetchall()
+        rows = db.execute(
+            """
+            SELECT p.*, COALESCE(c.card_type, ac.card_type, '') AS card_type,
+                   COALESCE(c.card_number, ac.card_number, '') AS card_number
+            FROM payments p
+            LEFT JOIN membership_cards c ON p.card_id = c.id
+            LEFT JOIN attendance a ON p.attendance_id = a.id
+            LEFT JOIN membership_cards ac ON a.card_id = ac.id
+            ORDER BY p.payment_date DESC, p.id DESC LIMIT 120
+            """
+        ).fetchall()
     return rows_to_list(rows)
+
+
+def payment_entries(user_id: str | None, params: dict[str, list[str]]) -> dict[str, Any]:
+    with connect() as db:
+        user = get_user(db, user_id)
+        require_role(user, "admin", "super_admin")
+        clauses: list[str] = []
+        values: list[Any] = []
+
+        member_id = (params.get("memberId", [""])[0] or "").strip()
+        date_from = (params.get("from", [""])[0] or "").strip()
+        date_to = (params.get("to", [""])[0] or "").strip()
+        card_type = (params.get("cardType", [""])[0] or "").strip()
+
+        if member_id:
+            clauses.append("p.member_id = ?")
+            values.append(member_id)
+        if date_from:
+            clauses.append("p.payment_date >= ?")
+            values.append(date_from)
+        if date_to:
+            clauses.append("p.payment_date <= ?")
+            values.append(date_to)
+        if card_type:
+            clauses.append("COALESCE(c.card_type, ac.card_type, '') = ?")
+            values.append(card_type)
+
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        limit = "" if clauses else "LIMIT 20"
+        rows = db.execute(
+            f"""
+            SELECT p.*, COALESCE(c.card_type, ac.card_type, '') AS card_type,
+                   COALESCE(c.card_number, ac.card_number, '') AS card_number
+            FROM payments p
+            LEFT JOIN membership_cards c ON p.card_id = c.id
+            LEFT JOIN attendance a ON p.attendance_id = a.id
+            LEFT JOIN membership_cards ac ON a.card_id = ac.id
+            {where}
+            ORDER BY p.payment_date DESC, p.id DESC
+            {limit}
+            """,
+            values,
+        ).fetchall()
+        card_types = [
+            row["card_type"]
+            for row in db.execute("SELECT DISTINCT card_type FROM membership_cards WHERE card_type <> '' ORDER BY card_type").fetchall()
+        ]
+        total = sum(float(row["amount"] or 0) for row in rows)
+    return {"entries": rows_to_list(rows), "cardTypes": card_types, "total": total}
 
 
 def bootstrap(user_id: str | None) -> dict[str, Any]:
@@ -546,6 +641,94 @@ def save_member(payload: dict[str, Any]) -> dict[str, Any]:
         user = get_user(db, payload.get("userId"))
         require_role(user, "admin", "supervisor")
         create_or_select_member(db, user, payload.get("member", {}))
+    return bootstrap(payload.get("userId"))
+
+
+def update_member_status(payload: dict[str, Any]) -> dict[str, Any]:
+    with connect() as db:
+        user = get_user(db, payload.get("userId"))
+        require_role(user, "admin")
+        member_id = int(payload.get("memberId") or 0)
+        active = 1 if payload.get("active") else 0
+        member = db.execute("SELECT * FROM members WHERE id = ?", (member_id,)).fetchone()
+        if not member:
+            raise ValueError("Member not found.")
+        stamp = now_label()
+        db.execute("UPDATE members SET active = ? WHERE id = ?", (active, member_id))
+        action = "Member Reactivated" if active else "Member Hidden"
+        db.execute("INSERT INTO audit (action, actor, created_at) VALUES (?, ?, ?)", (f"{action} - {member['name']}", user["name"], stamp))
+    return bootstrap(payload.get("userId"))
+
+
+def save_card_payment(payload: dict[str, Any]) -> dict[str, Any]:
+    with connect() as db:
+        user = get_user(db, payload.get("userId"))
+        require_role(user, "admin", "supervisor")
+        data = payload.get("payment", {})
+        member_id = int(data.get("memberId") or 0)
+        member = db.execute("SELECT * FROM members WHERE id = ?", (member_id,)).fetchone()
+        if not member:
+            raise ValueError("Member not found.")
+
+        card_type = str(data.get("cardType", "")).strip() or "Trial Card"
+        amount = float(data.get("amount") or 0)
+        if amount <= 0:
+            raise ValueError("Payment amount must be greater than zero.")
+        payment_mode = str(data.get("paymentMode", "")).strip() or "Cash"
+        payment_date = str(data.get("paymentDate", "")).strip() or datetime.now().date().isoformat()
+        notes = str(data.get("notes", "")).strip()
+        create_card = bool(data.get("createCard", True))
+        stamp = now_label()
+        club = member["nutrition_club"] or current_club(user)
+        card = None
+
+        if create_card:
+            target = card_target(card_type)
+            cursor = db.execute(
+                """
+                INSERT INTO membership_cards
+                (member_id, member_name, club, card_number, card_type, start_date, target_visits,
+                 completed_visits, remaining_visits, created_by, created_date)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+                """,
+                (
+                    member["id"],
+                    member["name"],
+                    club,
+                    f"NC-{member['id']:03d}-{target}D-{int(datetime.now().timestamp())}",
+                    card_type,
+                    payment_date,
+                    target,
+                    target,
+                    user["name"],
+                    stamp,
+                ),
+            )
+            card_id = cursor.lastrowid
+            db.execute("UPDATE members SET card_type = ? WHERE id = ?", (card_type, member["id"]))
+            db.execute("INSERT INTO audit (action, actor, created_at) VALUES (?, ?, ?)", (f"Card Purchased - {member['name']} {card_type}", user["name"], stamp))
+        else:
+            card = db.execute(
+                """
+                SELECT * FROM membership_cards
+                WHERE member_id = ? AND card_type = ?
+                ORDER BY status = 'Active' DESC, id DESC LIMIT 1
+                """,
+                (member["id"], card_type),
+            ).fetchone()
+            if not card:
+                raise ValueError("No matching card found. Turn on Create New Card to save this purchase.")
+            card_id = card["id"]
+
+        db.execute(
+            """
+            INSERT INTO payments
+            (member_id, member_name, club, attendance_id, card_id, payment_date, amount, payment_mode, notes, created_by, created_date)
+            VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (member["id"], member["name"], club, card_id, payment_date, amount, payment_mode, notes, user["name"], stamp),
+        )
+        db.execute("INSERT INTO audit (action, actor, created_at) VALUES (?, ?, ?)", (f"Payment Added - {member['name']} {amount:.2f} {card_type}", user["name"], stamp))
     return bootstrap(payload.get("userId"))
 
 
@@ -860,14 +1043,15 @@ def save_attendance(payload: dict[str, Any]) -> dict[str, Any]:
             db.execute(
                 """
                 INSERT INTO payments
-                (member_id, member_name, club, attendance_id, payment_date, amount, payment_mode, notes, created_by, created_date)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (member_id, member_name, club, attendance_id, card_id, payment_date, amount, payment_mode, notes, created_by, created_date)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     member["id"],
                     member["name"],
                     club,
                     attendance_id,
+                    card["id"] if card else None,
                     attendance_date,
                     amount,
                     data.get("paymentMode") or "Cash",
@@ -916,6 +1100,10 @@ class Handler(SimpleHTTPRequestHandler):
                 params = parse_qs(parsed.query)
                 self.send_json(audit_entries(params.get("userId", [""])[0] or None, params))
                 return
+            if parsed.path == "/api/payments":
+                params = parse_qs(parsed.query)
+                self.send_json(payment_entries(params.get("userId", [""])[0] or None, params))
+                return
             if parsed.path == "/health":
                 self.send_json({"ok": True, "database": str(DB_PATH.name)})
                 return
@@ -956,6 +1144,12 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             if parsed.path == "/api/members":
                 self.send_json(save_member(payload))
+                return
+            if parsed.path == "/api/members/status":
+                self.send_json(update_member_status(payload))
+                return
+            if parsed.path == "/api/card-payment":
+                self.send_json(save_card_payment(payload))
                 return
             if parsed.path == "/api/users":
                 self.send_json(save_user(payload))
