@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: healthrank-pro
+    runtime: docker
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: HEALTHRANK_DB
+        value: /data/app.db
+    disk:
+      name: healthrank-data
+      mountPath: /data
+      sizeGB: 1
