@@ -1,6 +1,6 @@
 # HealthRank Pro
 
-SQLite-backed deployable web app for nutrition club members, attendance, membership cards, payments, rankings, and weekly measurements.
+SQLite/PostgreSQL-compatible deployable web app for nutrition club members, attendance, membership cards, payments, rankings, and weekly measurements.
 
 ## Run Locally
 
@@ -35,7 +35,9 @@ Demo shortcuts:
 
 ## Database
 
-The server creates the SQLite database automatically on first run.
+The server creates the database schema automatically on first run.
+
+Local development can use SQLite without any external database:
 
 By default, local runs use:
 
@@ -49,6 +51,38 @@ For deployment or a persistent local database, set:
 $env:HEALTHRANK_DB="C:\path\to\persistent\app.db"
 python server.py
 ```
+
+For PostgreSQL, set `DATABASE_URL` instead:
+
+```powershell
+$env:DATABASE_URL="postgresql://user:password@host:5432/healthrank"
+python server.py
+```
+
+`DATABASE_URL` takes priority over `HEALTHRANK_DB`. Render, Railway, Supabase, Neon, and AWS RDS-style PostgreSQL URLs are supported. `postgres://...` URLs are normalized automatically to `postgresql://...`.
+
+### Database Models And Migration Path
+
+The live app uses a small compatibility layer in `server.py` so the same code runs on SQLite and PostgreSQL. SQLAlchemy model definitions are also available in `models.py` for future Alembic migrations.
+
+Migration-friendly behavior:
+
+- PostgreSQL uses `SERIAL` primary keys for auto-increment tables.
+- SQLite keeps `INTEGER PRIMARY KEY AUTOINCREMENT`.
+- Existing SQLite databases are upgraded in place with missing columns.
+- Common indexes are created for member lookup, attendance dates, measurement dates, and payment dates.
+- Every member gets a generated visible Member ID such as `HRP-000001`.
+- Existing members are backfilled with generated Member IDs during startup.
+
+### Demo Data
+
+The app keeps default login users available, but demo members/cards are not inserted by default. To intentionally seed demo members for a temporary test environment, set:
+
+```text
+SEED_DEMO_DATA=true
+```
+
+Leave `SEED_DEMO_DATA` unset in production or when you want to manually add members yourself.
 
 Main tables:
 
@@ -84,7 +118,13 @@ PORT=<provided by cloud platform>
 HEALTHRANK_DB=/data/app.db
 ```
 
-`HEALTHRANK_DB` must point to persistent disk storage. Without a persistent disk, SQLite data will reset when the container is rebuilt or restarted on many platforms.
+For PostgreSQL deployments, use:
+
+```text
+DATABASE_URL=postgresql://user:password@host:5432/healthrank
+```
+
+`HEALTHRANK_DB` must point to persistent disk storage when using SQLite. Without a persistent disk, SQLite data will reset when the container is rebuilt or restarted on many platforms. PostgreSQL deployments do not need a mounted SQLite disk.
 
 ### Deploy With Docker
 

@@ -8,7 +8,10 @@ ENV HEALTHRANK_DB=/data/app.db
 
 WORKDIR /app
 
-COPY index.html styles.css script.js server.py README.md ./
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY index.html styles.css script.js server.py models.py README.md ./
 
 RUN mkdir -p /data
 
