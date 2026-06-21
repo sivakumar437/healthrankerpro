@@ -10,12 +10,17 @@ const state = {
   profileEditOpen: false,
   showHiddenMembers: false,
   rankingsMarathonOnly: false,
+  scoringFormulaOpen: false,
+  dashboardClubFilter: "",
   attendanceMemberId: "",
   attendanceEntryDate: "",
   attendanceEntryType: "Present",
   attendanceHiddenByDate: {},
   attendanceViewDate: "",
   profileMemberId: "",
+  profileAttendanceMonth: "",
+  profileAttendanceRows: [],
+  profileAttendanceKey: "",
   modal: null,
   members: [],
   measurements: [],
@@ -32,7 +37,16 @@ const state = {
   paymentCardTypes: [],
   paymentTotal: 0,
   paymentFilters: { from: "", to: "", cardType: "", memberId: "", showSum: false },
+  paymentMemberQuery: "",
+  paymentPurchaseMemberId: "",
+  marathonData: { month: "", current: [], previous: [] },
   notifications: [],
+  scoringFormula: null,
+  dashboardSummary: null,
+  dashboardClubs: [],
+  reportMemberId: "",
+  reportThroughDate: "",
+  memberReport: null,
   week: "",
 };
 
@@ -77,10 +91,12 @@ const routes = [
   ["today", "Today View", icons.clock],
   ["measurements", "Measurements", icons.clipboard],
   ["payments", "Payments", icons.wallet],
+  ["marathon", "Marathon", icons.trophy],
   ["rankings", "Rankings", icons.trophy],
   ["import", "Import", icons.upload],
   ["compliance", "Compliance", icons.check],
   ["history", "History", icons.history],
+  ["reports", "Reports", icons.clipboard],
   ["audit", "Audit", icons.shield],
   ["export", "Export", icons.download],
   ["users", "Users", icons.shield],
@@ -125,7 +141,14 @@ function applyData(data) {
   state.session = data.session;
   state.audit = data.audit || [];
   state.notifications = data.notifications || [];
+  state.scoringFormula = data.scoringFormula || null;
+  state.dashboardSummary = data.dashboardSummary || null;
+  state.dashboardClubs = data.dashboardClubs || [];
+  state.dashboardClubFilter = state.dashboardSummary?.club || "";
   state.week = data.week || "";
+  if (!state.user || !["admin", "supervisor", "super_admin"].includes(state.user.role)) {
+    state.scoringFormulaOpen = false;
+  }
   if (state.user && state.user.role === "member" && !["dashboard", "measurements", "history"].includes(state.route)) {
     state.route = "history";
   }
@@ -139,6 +162,9 @@ function applyData(data) {
     state.route = "dashboard";
   }
   if (state.user && state.user.role !== "admin" && state.route === "audit") {
+    state.route = "dashboard";
+  }
+  if (state.user && !["admin", "super_admin"].includes(state.user.role) && state.route === "reports") {
     state.route = "dashboard";
   }
   if (state.user && state.user.role !== "admin" && state.route === "export") {
@@ -166,6 +192,11 @@ async function bootstrap() {
     } else {
       const userId = sessionStorage.getItem("healthrank-user-id") || "";
       applyData(await api(`/api/bootstrap?userId=${encodeURIComponent(userId)}`));
+    }
+    if (state.user?.role === "member") {
+      state.profileMemberId = state.user.member_id || state.members[0]?.id || "";
+      state.profileAttendanceMonth = state.profileAttendanceMonth || currentLocalMonth();
+      if (state.profileMemberId) await loadProfileAttendance();
     }
     state.loading = false;
     render();
@@ -259,19 +290,13 @@ function renderShell() {
 }
 
 function renderTopbarAction() {
-  if (state.route === "dashboard") return `<button class="btn btn-primary" data-route="import">${icons.upload} Import Data</button>`;
+  if (state.route === "dashboard") return "";
   if (state.route === "rankings") return `<button class="btn btn-primary" data-action="re-score-all">${icons.history} Re-score All</button>`;
   return `<button class="btn btn-outline" data-action="refresh">Refresh</button>`;
 }
 
 function navButtons(mobile) {
-  const visibleRoutes = mobile
-    ? state.user.role === "admin"
-      ? ["dashboard", "members", "today", "attendance", "payments", "export"]
-      : state.user.role === "member"
-        ? ["dashboard", "measurements", "history"]
-        : ["dashboard", "today", "attendance", "measurements"]
-    : ["dashboard", "members", "today", "attendance", "measurements", "payments", "rankings", "compliance", "history", "audit", "export", "users"];
+  const visibleRoutes = ["dashboard", "members", "today", "attendance", "measurements", "payments", "marathon", "rankings", "compliance", "history", "reports", "audit", "export", "users"];
   return visibleRoutes
     .map((routeId) => routes.find(([id]) => id === routeId))
     .filter(Boolean)
@@ -284,7 +309,9 @@ function navButtons(mobile) {
       if (id === "export" && state.user.role !== "admin") return false;
       if (id === "compliance" && state.user.role !== "admin") return false;
       if (id === "history" && state.user.role !== "admin" && state.user.role !== "member") return false;
-      if (id === "payments" && state.user.role !== "admin") return false;
+      if (id === "reports" && !["admin", "super_admin"].includes(state.user.role)) return false;
+      if (id === "payments" && !["admin", "supervisor", "super_admin"].includes(state.user.role)) return false;
+      if (id === "marathon" && state.user.role !== "admin") return false;
       if (id === "users" && state.user.role !== "admin") return false;
       return true;
     })
@@ -305,11 +332,13 @@ function pageSubtitle(route) {
     attendance: "Fast daily entry with card progress and payments",
     today: "Date-wise attendance, card counts, and payments",
     measurements: "Review weekly measurement entries and corrections",
-    payments: "Admin-only payment history and totals",
+    payments: "Card purchases, payment history, and totals",
+    marathon: "Current-month Marathon registrations and monthly reset",
     rankings: "Week-over-week transformation scores",
     import: "Add weekly measurements from a spreadsheet",
     compliance: "Weekly measurement tracking and pending follow-ups",
     history: "Recent measurement activity and score movement",
+    reports: "Generate printable member measurement reports",
     audit: "Admin-only transaction history and filters",
     export: "Download a complete Excel backup of all database tables",
     profile: "Member details, card, attendance, payments, and measurements",
@@ -326,10 +355,12 @@ function renderRoute() {
     today: renderTodayView,
     measurements: renderMeasurements,
     payments: renderPaymentsPage,
+    marathon: renderMarathonPage,
     rankings: renderRankings,
     import: renderImport,
     compliance: renderCompliance,
     history: renderHistory,
+    reports: renderMemberReports,
     audit: renderAuditHistoryPage,
     export: renderExportPage,
     profile: renderMemberProfile,
@@ -342,24 +373,28 @@ function renderDashboard() {
   if (state.user.role === "member") return renderMemberDashboard();
   const entries = state.members.map((member) => ({ member, progress: goalProgress(member) })).sort((a, b) => b.progress.score - a.progress.score);
   const champion = entries[0];
-  const avgLoss = average(entries.map((entry) => Math.max(-entry.progress.weightChange, 0)).filter(Boolean));
-  const avgMuscle = average(entries.map((entry) => Math.max(entry.progress.muscleGain, 0)).filter(Boolean));
-  const avgBodyFat = average(entries.map((entry) => Math.max(entry.progress.bodyFatReduced, 0)).filter(Boolean));
-  const idealCount = entries.filter((entry) => idealDistance(entry.member) <= 1).length;
-  const attentionCount = entries.filter((entry) => !entry.member.measured).length;
-  const totalWeeks = Math.max(5, state.measurements.length || 0);
-  const importCount = state.audit.filter((item) => item.action.includes("Import")).length || 22;
+  const summary = state.dashboardSummary || {};
+  const metricValue = (value, suffix = "") => value === null || value === undefined ? "-" : `${value}${suffix}`;
   return `
+    ${state.user.role === "super_admin" && state.dashboardClubs.length ? `
+      <div class="dashboard-club-filter">
+        <label><span class="label">Nutrition Club</span><select id="dashboardClubFilter">
+          <option value="">All Nutrition Clubs</option>
+          ${state.dashboardClubs.map((club) => `<option value="${escapeHtml(club)}" ${state.dashboardClubFilter === club ? "selected" : ""}>${escapeHtml(club)}</option>`).join("")}
+        </select></label>
+      </div>
+    ` : ""}
     <div class="dashboard-metrics grid">
-      ${dashboardMetric("Total Members", state.members.length, "", icons.user, "bg-primary")}
-      ${dashboardMetric("Avg Weight Loss", avgLoss ? `${avgLoss.toFixed(1)} kg` : "-", "week over week", icons.activity, "bg-emerald")}
-      ${dashboardMetric("Avg Muscle Gain", avgMuscle ? `${avgMuscle.toFixed(1)} kg` : "-", "week over week", icons.bolt || icons.trophy, "bg-blue")}
-      ${dashboardMetric("Avg Body Fat", avgBodyFat ? `${avgBodyFat.toFixed(1)}%` : "-", "reduction", icons.target || icons.check, "bg-violet")}
-      ${dashboardMetric("At Ideal Weight", idealCount, "members achieved goal", icons.star || icons.trophy, "bg-amber")}
-      ${dashboardMetric("Need Attention", attentionCount, "flagged this week", icons.lock, "bg-danger")}
-      ${dashboardMetric("Total Weeks", totalWeeks, "measurements recorded", icons.trophy, "bg-emerald")}
-      ${dashboardMetric("Imports", importCount, "sessions completed", icons.upload, "bg-muted-icon")}
+      ${dashboardMetric("Total Members", metricValue(summary.totalMembers), "active members", icons.user, "bg-primary")}
+      ${dashboardMetric("Avg Weight Loss", metricValue(summary.avgWeightLoss, " kg"), "latest week over week", icons.activity, "bg-emerald")}
+      ${dashboardMetric("Avg Muscle Gain", metricValue(summary.avgMuscleGain, " kg"), "latest week over week", icons.bolt || icons.trophy, "bg-blue")}
+      ${dashboardMetric("Avg Body Fat", metricValue(summary.avgBodyFat, "%"), "latest reduction", icons.target || icons.check, "bg-violet")}
+      ${dashboardMetric("At Ideal Weight", metricValue(summary.atIdealWeight), "within the height-based healthy range", icons.star || icons.trophy, "bg-amber")}
+      ${dashboardMetric("Need Attention", metricValue(summary.needAttention), "not measured this week", icons.lock, "bg-danger")}
+      ${dashboardMetric("Total Weeks", metricValue(summary.totalWeeks), "distinct measurement weeks", icons.trophy, "bg-emerald")}
+      ${dashboardMetric("Imports", metricValue(summary.imports), "recorded import sessions", icons.upload, "bg-muted-icon")}
     </div>
+    ${renderMissedMeasurements(summary.measurementMisses)}
     <div class="dashboard-main-grid">
       ${champion ? renderTransformationChampion(champion) : ""}
       ${renderTopPerformers(entries)}
@@ -372,6 +407,7 @@ function renderMemberDashboard() {
   if (!member) return empty("No member profile is linked to this account.");
   const progress = goalProgress(member);
   const cards = goalMetricCards(member, progress);
+  const memberMeasurements = measurementsFor(member.id);
   return `
     <div class="card goal-summary">
       <div class="section-heading"><div><h2>${escapeHtml(member.name)}</h2><p>Your measurement history, progress, trends, and achievements</p></div></div>
@@ -388,6 +424,7 @@ function renderMemberDashboard() {
       </div>
       <div class="insight-card"><strong>Weekly Insight</strong><p>${weeklyInsight(member, progress)}</p></div>
     </div>
+    ${renderBodyCompositionDashboard(member, memberMeasurements)}
   `;
 }
 
@@ -400,6 +437,50 @@ function dashboardMetric(label, value, sub, icon, colorClass) {
         ${sub ? `<small>${sub}</small>` : ""}
       </div>
       <div class="stat-icon ${colorClass}">${icon}</div>
+    </article>
+  `;
+}
+
+function renderMissedMeasurements(data) {
+  if (!data) return "";
+  const categories = [
+    { key: "oneWeek", title: "1 Week Missed", note: "Missed last week", tone: "missed-one" },
+    { key: "twoWeeks", title: "2 Weeks Missed", note: "Two consecutive weeks", tone: "missed-two" },
+    { key: "threeWeeks", title: "3 Weeks Missed", note: "Three consecutive weeks", tone: "missed-three" },
+    { key: "fourToNineWeeks", title: "4-9 Weeks Missed", note: "More than three weeks", tone: "missed-long" },
+    { key: "moreThanNineWeeks", title: "More Than 9 Weeks", note: "Long-term follow-up", tone: "missed-critical" },
+  ];
+  return `
+    <section class="missed-measurements-section">
+      <div class="section-heading missed-measurements-heading">
+        <div>
+          <h2>Missed Weekly Measurements</h2>
+          <p>Completed Sunday-Saturday weeks. Last checked period: ${formatDateOnly(data.periodStart)} to ${formatDateOnly(data.periodEnd)}.</p>
+        </div>
+        ${icons.calendar}
+      </div>
+      <div class="missed-measurements-grid">
+        ${categories.map((category) => missedMeasurementCard(category, data[category.key] || [])).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function missedMeasurementCard(category, members) {
+  return `
+    <article class="missed-measurement-card ${category.tone}">
+      <div class="missed-measurement-card-header">
+        <div><h3>${category.title}</h3><p>${category.note}</p></div>
+        <strong>${members.length}</strong>
+      </div>
+      <div class="missed-member-list">
+        ${members.length ? members.map((member) => `
+          <div class="missed-member-row">
+            <span><b>${escapeHtml(member.name)}</b><small>${escapeHtml(member.memberCode)}</small></span>
+            <em>${Number(member.weeksMissed) > 9 ? "9+" : member.weeksMissed} wk</em>
+          </div>
+        `).join("") : `<p class="missed-empty">No members</p>`}
+      </div>
     </article>
   `;
 }
@@ -501,8 +582,6 @@ function renderSingleMemberEntry() {
         <label><span class="label">Date of Birth</span><input name="dob" id="memberDob" type="date" /></label>
         <label><span class="label">Height (cm)</span><input name="height" type="number" step="0.1" placeholder="Height" /></label>
         <label><span class="label">Nutrition Club</span><input name="nutritionClub" value="Main Nutrition Club" /></label>
-        <label><span class="label">Membership/Card Type</span>${cardTypeSelect()}</label>
-        <label><span class="label">Marathon Member</span><select name="marathon"><option value="0">No</option><option value="1">Yes</option></select></label>
         <label class="wide"><span class="label">Primary Goal</span><input name="goal" id="memberGoal" placeholder="Health & Fitness" /></label>
         <div class="wide goal-chip-row">
           ${goalOptions().map((goal) => `<button type="button" data-action="set-member-goal" data-goal="${escapeHtml(goal)}">${escapeHtml(goal)}</button>`).join("")}
@@ -589,9 +668,9 @@ function renderDailyAttendanceView(options = {}) {
         <span>Total payments on this date</span>
         <strong>${formatCurrency(totalPayments)}</strong>
       </div>
-      <table>
-        <thead><tr><th>Time</th><th>Member</th><th>Card</th><th>Card Count</th><th>Payment</th></tr></thead>
-        <tbody>${rows.map(dailyAttendanceRow).join("") || `<tr><td colspan="5">${empty("No attendance for selected date.")}</td></tr>`}</tbody>
+      <table class="today-attendance-table">
+        <thead><tr><th class="today-serial-column">S.No.</th><th>Name</th><th>Time</th><th>Card Type</th><th>Count</th><th>Amount</th><th>Collected By</th></tr></thead>
+        <tbody>${rows.map((row, index) => dailyAttendanceRow(row, index)).join("") || `<tr><td colspan="7">${empty("No attendance for selected date.")}</td></tr>`}</tbody>
       </table>
     </div>
   `;
@@ -609,21 +688,26 @@ function dailyAttendanceRows(date) {
         return sameDate && sameMember && (linkedAttendance || !payment.attendance_id || Number(payment.card_id || 0) === Number(attendance.card_id || 0));
       });
       const paymentTotal = payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+      const benefitTotal = payments.reduce((sum, payment) => sum + paymentBenefitValue(payment), 0);
       const paymentModes = [...new Set(payments.map((payment) => payment.payment_mode).filter(Boolean))].join(", ");
       const paymentCards = [...new Set(payments.map((payment) => payment.card_type || payment.card_number).filter(Boolean))].join(", ");
+      const paymentCollectors = [...new Set(payments.map((payment) => payment.created_by).filter(Boolean))].join(", ");
       return {
         attendance,
         card,
         payments,
         paymentTotal,
+        benefitTotal,
         paymentModes,
         paymentCards,
+        paymentCollectors,
+        displayTime: attendance.updated_on || attendance.marked_on,
         countValue: Number(attendance.neutral_day ? 0 : attendance.count_value || 0),
       };
     })
     .sort((a, b) => attendanceTimeSortValue(a.attendance) - attendanceTimeSortValue(b.attendance));
   const usedByCard = new Map();
-  return baseRows.flatMap((row) => splitDailyAttendanceRow(row)).map((row) => {
+  const displayRows = baseRows.flatMap((row) => splitDailyAttendanceRow(row)).map((row) => {
     if (!row.card || !row.attendance.card_id || !row.countValue) return { ...row, cardCount: null };
     const cardId = Number(row.attendance.card_id);
     if (!usedByCard.has(cardId)) usedByCard.set(cardId, cardUsedBeforeDate(cardId, date));
@@ -639,6 +723,7 @@ function dailyAttendanceRows(date) {
       },
     };
   });
+  return displayRows.sort((a, b) => attendanceDisplayTimeSortValue(a) - attendanceDisplayTimeSortValue(b));
 }
 
 function splitDailyAttendanceRow(row) {
@@ -646,23 +731,30 @@ function splitDailyAttendanceRow(row) {
   if (!guestName) return [row];
   const totalCount = Math.max(Number(row.countValue || 0), 2);
   const memberCount = 1;
-  const memberReason = reasonWithoutGuest(row.attendance.reason);
   return [
     {
       ...row,
       countValue: memberCount,
-      attendance: { ...row.attendance, reason: memberReason },
+      displayTime: row.attendance.marked_on,
+      displayDetails: [row.attendance.attendance_type],
+      attendance: { ...row.attendance, reason: "", updated_by: "", updated_on: "" },
     },
     {
       ...row,
       countValue: totalCount - memberCount,
       paymentTotal: 0,
+      benefitTotal: 0,
       paymentModes: "",
       paymentCards: "",
+      paymentCollectors: "",
       payments: [],
+      displayTime: row.attendance.updated_on || row.attendance.marked_on,
       displayName: guestName,
-      displayDetails: [`Guest of ${row.attendance.member_name}`, memberReason].filter(Boolean),
-      attendance: { ...row.attendance, reason: "" },
+      displayDetails: [
+        `Guest of ${row.attendance.member_name}`,
+        row.attendance.updated_on ? `Updated by ${row.attendance.updated_by || "-"} on ${row.attendance.updated_on}` : "",
+      ].filter(Boolean),
+      attendance: { ...row.attendance, reason: "", updated_by: "", updated_on: "" },
     },
   ];
 }
@@ -670,14 +762,6 @@ function splitDailyAttendanceRow(row) {
 function guestNameFromReason(reason = "") {
   const match = String(reason || "").match(/Guest:\s*([^|]+)/i);
   return match ? match[1].trim() : "";
-}
-
-function reasonWithoutGuest(reason = "") {
-  return String(reason || "")
-    .split("|")
-    .map((part) => part.trim())
-    .filter((part) => part && !/^Guest:/i.test(part))
-    .join(" | ");
 }
 
 function cardUsedBeforeDate(cardId, date) {
@@ -694,6 +778,11 @@ function effectiveAttendanceCount(row) {
 
 function attendanceTimeSortValue(attendance) {
   const value = Date.parse(normalizeMarkedOn(attendance.updated_on || attendance.marked_on));
+  return Number.isNaN(value) ? Number.MAX_SAFE_INTEGER : value;
+}
+
+function attendanceDisplayTimeSortValue(row) {
+  const value = Date.parse(normalizeMarkedOn(row.displayTime));
   return Number.isNaN(value) ? Number.MAX_SAFE_INTEGER : value;
 }
 
@@ -718,16 +807,17 @@ function attendanceTimeLabel(attendance) {
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-function dailyAttendanceRow(row) {
+function dailyAttendanceRow(row, index) {
   const attendance = row.attendance;
   const cardLabel = row.card
     ? `${escapeHtml(row.card.card_type)}<small>${escapeHtml(row.card.card_number)}</small>`
     : attendance.neutral_day
       ? "Neutral day"
       : "No card";
-  const paymentLabel = row.paymentTotal > 0
-    ? `<strong>${formatCurrency(row.paymentTotal)}</strong><small>${escapeHtml(row.paymentModes || row.paymentCards || "Payment recorded")}</small>`
-    : "-";
+  const paymentParts = [];
+  if (row.paymentTotal > 0) paymentParts.push(`<strong>${formatCurrency(row.paymentTotal)}</strong><small>${escapeHtml(row.paymentModes || row.paymentCards || "Payment recorded")}</small>`);
+  if (row.benefitTotal > 0) paymentParts.push(`<s class="benefit-value">${formatCurrency(row.benefitTotal)}</s><small>Complimentary</small>`);
+  const paymentLabel = paymentParts.join("") || "-";
   const cardCountLabel = row.cardCount
     ? `<strong>${row.cardCount.used} / ${row.cardCount.target}</strong><small>${row.cardCount.remaining} remaining as of this date</small>`
     : "-";
@@ -738,11 +828,13 @@ function dailyAttendanceRow(row) {
   ].filter(Boolean);
   return `
     <tr>
-      <td><strong>${attendanceTimeLabel(attendance)}</strong></td>
+      <td class="today-serial-column"><strong>${index + 1}</strong></td>
       <td><strong>${escapeHtml(row.displayName || attendance.member_name)}</strong>${detailLines.map((line) => `<small>${escapeHtml(line)}</small>`).join("")}</td>
+      <td><strong>${attendanceTimeLabel({ marked_on: row.displayTime })}</strong></td>
       <td>${cardLabel}</td>
       <td>${cardCountLabel}</td>
       <td>${paymentLabel}</td>
+      <td>${row.paymentTotal > 0 || row.benefitTotal > 0 ? escapeHtml(row.paymentCollectors || "-") : "-"}</td>
     </tr>
   `;
 }
@@ -772,7 +864,7 @@ function renderSelectedAttendancePanel(member, card) {
         <h3>${card ? `${escapeHtml(card.card_type)} - ${escapeHtml(card.card_number)}` : "No active card"}</h3>
         <p>${memberContact(member)} - ${escapeHtml(card?.club || "Main Nutrition Club")}</p>
       </div>
-      ${card ? `<div class="card-progress"><strong>${card.remaining_visits} left</strong><span>${card.completed_visits} / ${card.target_visits} visits used</span><div class="progress-track"><i style="width:${progress}%"></i></div></div>` : `<span class="badge badge-red">Create card required</span>`}
+      ${card ? `<div class="card-progress"><strong>${card.remaining_visits} left</strong><span>${card.completed_visits} / ${card.target_visits} visits used</span><div class="progress-track"><i style="width:${progress}%"></i></div></div>` : `<span class="badge badge-red no-card-status">Create card required</span>`}
       <form id="attendanceForm" class="attendance-form inline-attendance-form">
         <input type="hidden" name="memberId" value="${member.id}" />
         <input type="hidden" name="attendanceDate" id="attendanceFormDate" value="${escapeHtml(state.attendanceEntryDate)}" />
@@ -780,7 +872,7 @@ function renderSelectedAttendancePanel(member, card) {
         ${hasExistingAttendance ? `
           <div class="form-grid">
             <label><span class="label">Count</span><select name="countValue"><option value="1">Count 1 visit</option><option value="2">Count 2 visits</option></select></label>
-            <label><span class="label">Admin Duplicate Update</span><select name="confirmUpdate" id="attendanceConfirmUpdate"><option value="">No</option><option value="1">Yes, add guest entry</option></select></label>
+            <label><span class="label">Duplicate / Guest Update</span><select name="confirmUpdate" id="attendanceConfirmUpdate"><option value="">No</option><option value="1">Yes, add guest entry</option></select></label>
             <label class="guest-name-field hidden"><span class="label">Guest Name</span><input name="guestName" placeholder="Guest / friend name" /></label>
             <label class="wide"><span class="label">Override Reason / Notes</span><textarea name="reason" rows="2" placeholder="Required for Override Attendance"></textarea></label>
           </div>
@@ -834,8 +926,8 @@ function renderMeasurements() {
     <p class="toolbar-note">${measurementRows.length} visible entries from full measurement history</p>
     <div class="table-card">
       <table>
-        <thead><tr><th>Member</th><th>Week</th><th>Weight</th><th>Fat</th><th>Muscle</th><th>BMI</th><th>BMA</th><th>Supervisor</th><th>Date</th><th></th></tr></thead>
-        <tbody>${measurementRows.map(measurementRow).join("") || `<tr><td colspan="10">${empty("No measurements match your search.")}</td></tr>`}</tbody>
+        <thead><tr><th>Member</th><th>Week</th><th>Weight</th><th>Body Fat</th><th>Visceral Fat</th><th>BMR</th><th>BMI</th><th>BMA</th><th>Subcutaneous Fat</th><th>Muscle Mass</th><th>Supervisor</th><th>Date</th><th></th></tr></thead>
+        <tbody>${measurementRows.map(measurementRow).join("") || `<tr><td colspan="13">${empty("No measurements match your search.")}</td></tr>`}</tbody>
       </table>
     </div>
   `;
@@ -853,7 +945,7 @@ function renderRankings() {
   const overall = rankingMembers
     .map((member) => ({ member, progress: goalProgress(member) }))
     .sort((a, b) => b.progress.score - a.progress.score);
-  const marathonCount = state.members.filter((member) => Number(member.marathon || 0) === 1 && Number(member.active ?? 1) === 1).length;
+  const marathonCount = state.members.filter((member) => isCurrentMonthMarathon(member) && Number(member.active ?? 1) === 1).length;
   return `
     <div class="rankings-page">
       ${renderScoringFormula()}
@@ -887,29 +979,31 @@ function renderRankings() {
 
 function rankedMembersForView() {
   if (!state.rankingsMarathonOnly) return state.members;
-  return state.members.filter((member) => Number(member.marathon || 0) === 1 && Number(member.active ?? 1) === 1);
+  return state.members.filter((member) => isCurrentMonthMarathon(member) && Number(member.active ?? 1) === 1);
 }
 
 function renderScoringFormula() {
-  const items = [
-    ["Muscle Gain", "40 x kg gained", "Compared to previous measurement", 40],
-    ["Fat Loss", "20 x fat % reduced", "Compared to previous measurement", 20],
-    ["Visceral Fat Loss", "20 x VF reduced", "Single digit gives 10 if no weekly loss", 20],
-    ["BMI Reduced", "10 x BMI reduced", "Compared to previous measurement", 10],
-  ];
+  if (!["admin", "supervisor", "super_admin"].includes(state.user.role) || !state.scoringFormula) return "";
+  const items = state.scoringFormula.items || [];
+  const open = state.scoringFormulaOpen;
   return `
-    <article class="formula-card">
-      <h2>Scoring Formula</h2>
-      <div class="formula-grid">
-        ${items.map(([label, points, note, width]) => `
-          <div class="formula-item">
-            <div><span>${label}</span><strong>${points}</strong></div>
-            <div class="formula-track"><span style="width:${width}%"></span></div>
-            <p>${note}</p>
-          </div>
-        `).join("")}
-      </div>
-      <p class="formula-priority">Score = 40 x muscle gain + 20 x fat % reduced + 20 x visceral fat reduced, or 10 default for single-digit VF if no VF loss + 10 x BMI reduced.</p>
+    <article class="formula-card ${open ? "open" : "collapsed"}">
+      <button class="formula-toggle" type="button" data-action="toggle-scoring-formula" aria-expanded="${open}">
+        <div><h2>Scoring Formula</h2><p>How weekly transformation scores are calculated</p></div>
+        <span class="collapse-indicator">${open ? "Hide" : "View Formula"}</span>
+      </button>
+      ${open ? `
+        <div class="formula-grid">
+          ${items.map((item) => `
+            <div class="formula-item">
+              <div><span>${escapeHtml(item.label)}</span><strong>${escapeHtml(item.points)}</strong></div>
+              <div class="formula-track"><span style="width:${Number(item.width) || 0}%"></span></div>
+              <p>${escapeHtml(item.note)}</p>
+            </div>
+          `).join("")}
+        </div>
+        <p class="formula-priority">${escapeHtml(state.scoringFormula.summary || "")}</p>
+      ` : ""}
     </article>
   `;
 }
@@ -972,7 +1066,7 @@ function renderImport() {
 
 function renderCompliance() {
   const pending = state.members.filter((m) => !m.measured);
-  const marathonPending = pending.filter((m) => m.marathon);
+  const marathonPending = pending.filter((m) => isCurrentMonthMarathon(m));
   const measured = state.members.length - pending.length;
   const canAddMeasurement = canAddMeasurements();
   return `
@@ -1006,6 +1100,101 @@ function renderHistory() {
       </table>
     </div>
   `;
+}
+
+function renderMemberReports() {
+  if (!["admin", "super_admin"].includes(state.user.role)) return restricted("Only administrators can generate member reports.");
+  const selectedMemberId = state.reportMemberId || String(state.members[0]?.id || "");
+  const throughDate = state.reportThroughDate || new Date().toISOString().slice(0, 10);
+  const report = state.memberReport;
+  return `
+    <section class="member-report-page">
+      <form id="memberReportForm" class="card member-report-controls">
+        <label><span class="label">Member</span><select name="memberId" required>
+          ${state.members.map((member) => `<option value="${member.id}" ${String(member.id) === String(selectedMemberId) ? "selected" : ""}>${escapeHtml(member.name)} - ${escapeHtml(member.member_code || "")}</option>`).join("")}
+        </select></label>
+        <label><span class="label">Report Through Date</span><input name="throughDate" type="date" value="${escapeHtml(throughDate)}" required /></label>
+        <button class="btn btn-primary" type="submit">${icons.clipboard} Generate Report</button>
+        ${report ? `<button class="btn btn-outline" type="button" data-action="print-member-report">${icons.download} Print / Save PDF</button>` : ""}
+      </form>
+      ${report ? renderMemberReportSheet(report) : `<div class="empty-state report-empty">${icons.clipboard}<strong>Select a member and date</strong><span>Generate a weekly measurement report from saved data.</span></div>`}
+    </section>
+  `;
+}
+
+function renderMemberReportSheet(report) {
+  const member = report.member;
+  const measurements = [...(report.measurements || [])];
+  const columns = Array.from({ length: 12 }, (_, index) => measurements[index] || null);
+  const rows = [
+    ["DATE", (row) => reportDayMonthLabel(row.measurement_date)],
+    ["AGE", (row) => reportMeasurementAge(row, member)],
+    ["HEIGHT", (row) => reportNumber(row.height)],
+    ["WEIGHT", (row) => reportNumber(row.weight)],
+    ["BODY FAT", (row) => reportNumber(row.body_fat)],
+    ["VISCERAL FAT", (row) => reportNumber(row.visceral_fat)],
+    ["BMR", (row) => reportNumber(row.bmr, 0)],
+    ["BMI", (row) => reportNumber(row.bmi)],
+    ["BMA", (row) => reportNumber(row.bma, 0)],
+    ["SUBCUTANEOUS FAT", (row) => reportNumber(row.subcutaneous_fat)],
+    ["MUSCLE MASS", (row) => reportNumber(row.muscle_mass)],
+  ];
+  return `
+    <article class="member-report-sheet" id="memberReportSheet">
+      <header class="member-report-header">
+        <h2>${escapeHtml(member.nutrition_club || "Nutrition Club")}</h2>
+        <div class="member-report-identity">
+          <p><span>Name</span><strong>${escapeHtml(member.name)}</strong></p>
+          <p><span>Phone No.</span><strong>${escapeHtml(member.phone || "-")}</strong></p>
+          <p><span>Invited By</span><strong>${escapeHtml(report.invitedBy || "-")}</strong></p>
+          <p><span>Gender</span><strong>${escapeHtml(member.gender || "-")}</strong></p>
+          <p><span>DOB</span><strong>${escapeHtml(member.dob ? reportDateLabel(member.dob) : "-")}</strong></p>
+          <p><span>Member ID</span><strong>${escapeHtml(member.member_code || "-")} <small>Year ${escapeHtml(String(report.throughDate || "").slice(0, 4))}</small></strong></p>
+        </div>
+      </header>
+      <div class="member-report-table-wrap">
+        <table class="member-report-table">
+          <thead><tr><th>METRIC</th>${columns.map((_, index) => `<th>${ordinal(index + 1)}<br />WEEK</th>`).join("")}</tr></thead>
+          <tbody>
+            ${rows.map(([label, value]) => `<tr><th>${label}</th>${columns.map((row) => `<td>${row ? escapeHtml(String(value(row))) : ""}</td>`).join("")}</tr>`).join("")}
+          </tbody>
+        </table>
+      </div>
+      <footer class="member-report-footer">Report through ${reportDateLabel(report.throughDate)} | Generated ${escapeHtml(report.generatedOn)}</footer>
+    </article>
+  `;
+}
+
+function ordinal(value) {
+  const remainder = value % 100;
+  if (remainder >= 11 && remainder <= 13) return `${value}th`;
+  return `${value}${value % 10 === 1 ? "st" : value % 10 === 2 ? "nd" : value % 10 === 3 ? "rd" : "th"}`;
+}
+
+function reportDateLabel(value) {
+  const parts = String(value || "").slice(0, 10).split("-");
+  return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : "-";
+}
+
+function reportDayMonthLabel(value) {
+  const parts = String(value || "").slice(0, 10).split("-");
+  return parts.length === 3 ? `${parts[2]}/${parts[1]}` : "-";
+}
+
+function reportNumber(value, decimals = 1) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "-";
+  return number.toFixed(decimals).replace(/\.0$/, "");
+}
+
+function reportMeasurementAge(row, member) {
+  try {
+    const scan = JSON.parse(row.scan_values || "{}");
+    if (scan.age !== null && scan.age !== undefined && scan.age !== "") return scan.age;
+  } catch (_) {
+    // Fall back to the member's stored age for legacy rows.
+  }
+  return member.age ?? "-";
 }
 
 function renderAuditHistoryPage() {
@@ -1124,13 +1313,14 @@ function exportSheetDescription(name) {
 }
 
 function renderPaymentsPage() {
-  if (state.user.role !== "admin") return restricted("Only administrators can view payments.");
+  if (!["admin", "supervisor", "super_admin"].includes(state.user.role)) return restricted("Only administrators and supervisors can view payments.");
   const selectedMember = state.members.find((member) => String(member.id) === String(state.paymentFilters.memberId));
   const entries = state.paymentEntries;
   const pending = pendingPaymentNotifications();
   const cardTypes = paymentCardTypeOptions();
   return `
     <div class="payments-page">
+      ${renderPaymentPurchaseSection()}
       <article class="card audit-filter-card">
         <div class="section-heading">
           <div><h2>Payments</h2><p>Latest 20 payments are shown by default. Filter by date, card type, or member.</p></div>
@@ -1169,7 +1359,7 @@ function renderPaymentsPage() {
       ` : ""}
       <div class="table-card payments-table">
         <table>
-          <thead><tr><th>Date</th><th>Member</th><th>Card Type</th><th>Payment Type</th><th>Amount</th><th>Recorded By</th><th>Created</th><th>Notes</th></tr></thead>
+          <thead><tr><th>Date</th><th>Member</th><th>Card Type</th><th>Payment Type</th><th>Amount / Benefit</th><th>Recorded By</th><th>Created</th><th>Notes</th></tr></thead>
           <tbody>${entries.map(paymentRow).join("") || `<tr><td colspan="8">${empty("No payments match the selected filters.")}</td></tr>`}</tbody>
           ${state.paymentFilters.showSum && entries.length ? `<tfoot><tr><td colspan="4"><strong>Total</strong></td><td><strong>${formatCurrency(state.paymentTotal)}</strong></td><td colspan="3"></td></tr></tfoot>` : ""}
         </table>
@@ -1188,17 +1378,109 @@ function renderPaymentsPage() {
   `;
 }
 
+function renderPaymentPurchaseSection() {
+  const query = state.paymentMemberQuery.trim().toLowerCase();
+  const purchaseMember = state.members.find((member) => String(member.id) === String(state.paymentPurchaseMemberId));
+  const results = query
+    ? state.members
+        .filter((member) => Number(member.active ?? 1) === 1)
+        .filter((member) => [member.name, member.phone, member.member_code].some((value) => String(value || "").toLowerCase().includes(query)))
+        .slice(0, 8)
+    : [];
+  return `
+    <article class="card payment-purchase-card">
+      <div class="section-heading">
+        <div><h2>Add Card or Club Benefit</h2><p>Search for a member and create their purchased or complimentary card.</p></div>
+        ${icons.wallet}
+      </div>
+      <label class="payment-member-search"><span class="label">Search Member</span><input id="paymentMemberSearch" type="search" value="${escapeHtml(state.paymentMemberQuery)}" placeholder="Search by name, mobile, or member ID" autocomplete="off" /></label>
+      ${query ? `
+        <div class="lookup-results payment-member-results">
+          ${results.map((member) => `
+            <button class="lookup-result ${String(member.id) === String(state.paymentPurchaseMemberId) ? "selected" : ""}" type="button" data-action="select-card-payment-member" data-member-id="${member.id}">
+              <strong>${escapeHtml(member.name)}</strong>
+              <span>${escapeHtml([member.member_code, member.phone].filter(Boolean).join(" - ") || member.nutrition_club || "Member")}</span>
+            </button>
+          `).join("") || `<div class="lookup-empty">No matching members found.</div>`}
+        </div>
+      ` : ""}
+      ${purchaseMember ? `
+        <div class="selected-filter payment-selected-member">
+          <span>Card payment for <strong>${escapeHtml(purchaseMember.name)}</strong> <small>${escapeHtml(memberIdentity(purchaseMember))}</small></span>
+          <button class="btn btn-outline mini" data-action="clear-card-payment-member" type="button">Change Member</button>
+        </div>
+        ${renderCardPaymentForm(purchaseMember, activeCardFor(purchaseMember.id), false)}
+      ` : `<p class="toolbar-note payment-search-note">Search and select a member to add a card payment.</p>`}
+    </article>
+  `;
+}
+
 function paymentRow(row) {
+  const benefitValue = paymentBenefitValue(row);
   return `
     <tr>
       <td>${escapeHtml(row.payment_date)}</td>
       <td><button class="table-member-link" data-action="select-payment-member" data-member-id="${row.member_id}">${escapeHtml(row.member_name)}</button></td>
       <td>${escapeHtml(row.card_type || "-")}</td>
       <td><span class="mini-badge">${escapeHtml(row.payment_mode)}</span></td>
-      <td><strong>${formatCurrency(row.amount)}</strong></td>
+      <td>${benefitValue > 0 ? `<s class="benefit-value">${formatCurrency(benefitValue)}</s><small>Club benefit</small>` : `<strong>${formatCurrency(row.amount)}</strong>`}</td>
       <td>${escapeHtml(row.created_by)}</td>
       <td>${escapeHtml(row.created_date)}</td>
       <td>${escapeHtml(row.notes || "-")}</td>
+    </tr>
+  `;
+}
+
+function paymentBenefitValue(payment) {
+  if (Number(payment.is_benefit || 0) === 1) return Number(payment.benefit_value || 0);
+  return payment.payment_mode === "Complimentary" ? Number(payment.benefit_value || payment.amount || 0) : 0;
+}
+
+function renderMarathonPage() {
+  if (state.user.role !== "admin") return restricted("Only administrators can manage monthly Marathon status.");
+  const current = state.marathonData.current || [];
+  const previous = state.marathonData.previous || [];
+  const monthLabel = state.marathonData.month || new Date().toISOString().slice(0, 7);
+  return `
+    <div class="marathon-page">
+      <article class="card marathon-control-card">
+        <div class="section-heading">
+          <div><h2>Monthly Marathon</h2><p>${escapeHtml(monthLabel)} registrations are active only for this calendar month.</p></div>
+          ${icons.trophy}
+        </div>
+        <div class="marathon-control-row">
+          <div><strong>${current.length}</strong><span>current-month member${current.length === 1 ? "" : "s"}</span></div>
+          <div><strong>${previous.length}</strong><span>previous status${previous.length === 1 ? "" : "es"} to reset</span></div>
+          <button class="btn btn-primary" type="button" data-action="reset-marathon" ${previous.length ? "" : "disabled"}>${icons.history} Reset Marathon</button>
+        </div>
+      </article>
+      <div class="table-card marathon-table">
+        <div class="dashboard-table-heading"><h2 class="dashboard-section-title">Current Month Marathon Members</h2><span class="toolbar-note">${current.length} active</span></div>
+        <table>
+          <thead><tr><th>Member ID</th><th>Member</th><th>Mobile</th><th>Nutrition Club</th><th>Payment Date</th><th>Status</th></tr></thead>
+          <tbody>${current.map((row) => marathonRow(row, true)).join("") || `<tr><td colspan="6">${empty("No Marathon payments for the current month.")}</td></tr>`}</tbody>
+        </table>
+      </div>
+      <div class="table-card marathon-table">
+        <div class="dashboard-table-heading"><h2 class="dashboard-section-title">Previous Marathon Statuses</h2><span class="toolbar-note">${previous.length} pending reset</span></div>
+        <table>
+          <thead><tr><th>Member ID</th><th>Member</th><th>Mobile</th><th>Nutrition Club</th><th>Last Payment</th><th>Status</th></tr></thead>
+          <tbody>${previous.map((row) => marathonRow(row, false)).join("") || `<tr><td colspan="6">${empty("No previous Marathon statuses require reset.")}</td></tr>`}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function marathonRow(row, active) {
+  return `
+    <tr>
+      <td>${escapeHtml(row.member_code || row.member_id)}</td>
+      <td><strong>${escapeHtml(row.name)}</strong></td>
+      <td>${escapeHtml(row.phone || "-")}</td>
+      <td>${escapeHtml(row.nutrition_club || "-")}</td>
+      <td>${row.payment_date ? formatDateOnly(row.payment_date) : "Legacy status"}</td>
+      <td><span class="badge ${active ? "badge-emerald" : "badge-amber"}">${active ? "Active this month" : "Ready to reset"}</span></td>
     </tr>
   `;
 }
@@ -1240,9 +1522,12 @@ function renderMemberProfile() {
   const card = activeCardFor(member.id);
   const memberMeasurements = measurementsFor(member.id);
   const latest = memberMeasurements[0];
-  const attendance = state.attendance.filter((row) => Number(row.member_id) === Number(member.id)).slice(0, 8);
-  const payments = state.payments.filter((row) => Number(row.member_id) === Number(member.id)).slice(0, 8);
-  const canAddCardPayment = state.user.role === "admin";
+  if (!state.profileAttendanceMonth) state.profileAttendanceMonth = currentLocalMonth();
+  const attendanceKey = `${member.id}:${state.profileAttendanceMonth}`;
+  const attendance = state.profileAttendanceKey === attendanceKey
+    ? state.profileAttendanceRows
+    : state.attendance.filter((row) => Number(row.member_id) === Number(member.id));
+  const payments = state.payments.filter((row) => Number(row.member_id) === Number(member.id));
   const canAddProfileMeasurement = state.user.role === "admin";
   const memberActive = Number(member.active ?? 1) === 1;
   return `
@@ -1252,7 +1537,7 @@ function renderMemberProfile() {
           <div><h2>${escapeHtml(member.name)}</h2><p>${memberIdentity(member)} - ${escapeHtml(member.nutrition_club || "Main Nutrition Club")}</p></div>
           <div class="profile-actions">
             ${goalBadge(member.goal)}
-            ${Number(member.marathon || 0) === 1 ? `<span class="badge badge-amber">${icons.trophy} Marathon</span>` : ""}
+            ${isCurrentMonthMarathon(member) ? `<span class="badge badge-amber">${icons.trophy} Marathon</span>` : ""}
             ${state.user.role === "admin" ? `<button class="btn btn-outline mini" data-action="toggle-profile-edit">${state.profileEditOpen ? "Close Edit" : "Edit Details"}</button><button class="btn btn-outline mini" data-action="set-member-status" data-member-id="${member.id}" data-active="${memberActive ? "0" : "1"}">${memberActive ? "Hide Member" : "Make Active"}</button>` : ""}
           </div>
         </div>
@@ -1260,32 +1545,145 @@ function renderMemberProfile() {
           ${stat("Current Card", card ? card.card_type : "None", card ? `${card.completed_visits}/${card.target_visits} visits` : "No active card", icons.clipboard, "bg-primary")}
           ${stat("Remaining Visits", card ? card.remaining_visits : "-", card ? card.status : "No active card", icons.clock, Number(card?.remaining_visits || 0) <= 3 ? "bg-amber" : "bg-emerald")}
           ${stat("Latest Weight", latest ? `${latest.weight} kg` : "-", latest ? latest.measurement_date : "No measurement", icons.activity, "bg-emerald")}
-          ${stat("Body Fat", latest ? `${latest.body_fat}%` : "-", "latest", icons.target, "bg-violet")}
-          ${stat("Height (cm)", latest ? latest.height : (member.height || "-"), latest ? latest.measurement_date : "profile", icons.check, "bg-blue")}
+          ${stat("Muscle Mass (kg)", latest ? `${Number(latest.muscle_mass).toFixed(1)} kg` : "-", latest ? (Number(latest.muscle_is_estimated || 0) === 1 ? "Approximate value" : latest.measurement_date) : "No measurement", icons.bolt || icons.trophy, "bg-violet")}
         </div>
       </article>
+      ${renderBodyCompositionDashboard(member, memberMeasurements)}
       ${state.user.role === "admin" && state.profileEditOpen ? renderMemberEditForm(member) : ""}
-      ${canAddCardPayment ? renderCardPaymentForm(member, card) : ""}
-      <div class="two-col grid">
-        <article class="table-card profile-history-card">
+      <div class="profile-history-stack">
+        ${renderMemberAttendanceCalendar(attendance)}
+        <article class="table-card profile-history-card measurement-history-card">
           <div class="dashboard-table-heading"><h2 class="dashboard-section-title">Measurement History</h2>${canAddProfileMeasurement ? `<button class="btn btn-outline mini" data-action="add-measurement" data-member-id="${member.id}">Add Measurement</button>` : ""}</div>
           <table>
             <thead><tr><th>Date</th><th>Weight</th><th>Fat</th><th>Muscle</th><th>VF</th><th>BMI</th><th>BMA</th><th>BMR</th><th>Change</th></tr></thead>
             <tbody>${memberMeasurements.map((row, index) => measurementHistoryRow(row, memberMeasurements[index + 1])).join("") || `<tr><td colspan="9">${empty("No measurements yet.")}</td></tr>`}</tbody>
           </table>
         </article>
-        <div class="profile-side">
-          <article class="table-card profile-history-card">
-            <div class="dashboard-table-heading"><h2 class="dashboard-section-title">Attendance History</h2></div>
-            <table><thead><tr><th>Date</th><th>Type</th><th>Count</th></tr></thead><tbody>${attendance.map((row) => `<tr><td>${row.attendance_date}</td><td>${escapeHtml(row.attendance_type)}</td><td>${row.neutral_day ? "Neutral" : row.count_value}</td></tr>`).join("") || `<tr><td colspan="3">${empty("No attendance yet.")}</td></tr>`}</tbody></table>
-          </article>
-          <article class="table-card profile-history-card">
-            <div class="dashboard-table-heading"><h2 class="dashboard-section-title">Payment History</h2></div>
-            <table><thead><tr><th>Date</th><th>Card</th><th>Amount</th><th>Mode</th></tr></thead><tbody>${payments.map((row) => `<tr><td>${row.payment_date}</td><td>${escapeHtml(row.card_type || "-")}</td><td>${formatCurrency(row.amount)}</td><td>${escapeHtml(row.payment_mode)}</td></tr>`).join("") || `<tr><td colspan="4">${empty("No payments yet.")}</td></tr>`}</tbody></table>
-          </article>
-        </div>
+        <article class="table-card profile-history-card payment-history-card">
+          <div class="dashboard-table-heading"><h2 class="dashboard-section-title">Payment History</h2></div>
+          <table><thead><tr><th>Date</th><th>Card</th><th>Amount / Benefit</th><th>Mode</th><th>Recorded By</th><th>Notes</th></tr></thead><tbody>${payments.map((row) => { const benefit = paymentBenefitValue(row); return `<tr><td>${row.payment_date}</td><td>${escapeHtml(row.card_type || "-")}</td><td>${benefit > 0 ? `<s class="benefit-value">${formatCurrency(benefit)}</s>` : formatCurrency(row.amount)}</td><td>${benefit > 0 ? "Complimentary" : escapeHtml(row.payment_mode)}</td><td>${escapeHtml(row.created_by || "-")}</td><td>${escapeHtml(row.notes || "-")}</td></tr>`; }).join("") || `<tr><td colspan="6">${empty("No payments yet.")}</td></tr>`}</tbody></table>
+        </article>
       </div>
     </div>
+  `;
+}
+
+function renderMemberAttendanceCalendar(attendance) {
+  const [year, month] = state.profileAttendanceMonth.split("-").map(Number);
+  const validYear = Number.isFinite(year) ? year : new Date().getFullYear();
+  const validMonth = Number.isFinite(month) ? month : new Date().getMonth() + 1;
+  const daysInMonth = new Date(validYear, validMonth, 0).getDate();
+  const firstWeekday = new Date(validYear, validMonth - 1, 1).getDay();
+  const today = currentLocalDate();
+  const attendanceByDate = new Map();
+  attendance
+    .filter((row) => String(row.attendance_date || "").startsWith(`${validYear}-${String(validMonth).padStart(2, "0")}`))
+    .forEach((row) => {
+      const entries = attendanceByDate.get(row.attendance_date) || [];
+      entries.push(row);
+      attendanceByDate.set(row.attendance_date, entries);
+    });
+  const visitedDateCount = [...attendanceByDate.values()].filter((entries) => entries.some((entry) => Number(entry.member_visit_count || 0) > 0)).length;
+  const cells = [];
+  for (let index = 0; index < firstWeekday; index += 1) cells.push(`<div class="attendance-calendar-day empty" aria-hidden="true"></div>`);
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const date = `${validYear}-${String(validMonth).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const dayEntries = attendanceByDate.get(date) || [];
+    const visited = dayEntries.some((entry) => Number(entry.member_visit_count || 0) > 0);
+    cells.push(`
+      <div class="attendance-calendar-day ${dayEntries.length ? "has-attendance" : ""} ${visited ? "visited" : ""} ${date === today ? "today" : ""}">
+        <span class="calendar-day-number">${day}</span>
+        ${dayEntries.map(renderCalendarAttendanceEntry).join("")}
+      </div>
+    `);
+  }
+  return `
+    <article class="card profile-attendance-calendar">
+      <div class="dashboard-table-heading attendance-calendar-heading">
+        <div><h2 class="dashboard-section-title">Attendance History</h2><p>${visitedDateCount} visited date${visitedDateCount === 1 ? "" : "s"} in selected month</p></div>
+        <label><span class="label">Month &amp; Year</span><input id="profileAttendanceMonth" type="month" value="${escapeHtml(state.profileAttendanceMonth)}" /></label>
+      </div>
+      <div class="attendance-calendar-weekdays">${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => `<span>${day}</span>`).join("")}</div>
+      <div class="attendance-calendar-grid">${cells.join("")}</div>
+    </article>
+  `;
+}
+
+function renderCalendarAttendanceEntry(entry) {
+  const type = entry.attendance_type || "Attendance";
+  const target = Number(entry.target_visits || 0);
+  const used = entry.card_used_as_of;
+  const cardCount = used !== null && used !== undefined && target > 0 ? `${used} / ${target}` : "No visit card";
+  const visitCount = Number(entry.member_visit_count || 0);
+  const guestCount = Number(entry.guest_count || 0);
+  return `
+    <div class="calendar-attendance-entry">
+      <span class="attendance-type-chip ${attendanceTypeColorClass(type)}">${escapeHtml(type)}</span>
+      <strong class="calendar-card-name">${escapeHtml(entry.card_type || "No card")}</strong>
+      ${entry.card_number ? `<span class="calendar-card-number">${escapeHtml(entry.card_number)}</span>` : ""}
+      <span class="calendar-card-count">${escapeHtml(cardCount)} as of date</span>
+      <span class="calendar-member-count">Visit count ${visitCount}</span>
+      ${entry.guest_name ? `<span class="calendar-guest-count">Guest: ${escapeHtml(entry.guest_name)} · Count ${guestCount}</span>` : ""}
+    </div>
+  `;
+}
+
+function attendanceTypeColorClass(type) {
+  return {
+    "Present": "type-present",
+    "Mega Club": "type-mega",
+    "Lifestyle Day": "type-lifestyle",
+    "Family Day": "type-family",
+    "Override Attendance": "type-override",
+    "Public Holiday": "type-holiday",
+    "Training Session": "type-training",
+    "Club Holiday": "type-holiday",
+  }[type] || "type-default";
+}
+
+function currentLocalMonth() {
+  const today = new Date();
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function currentLocalDate() {
+  const today = new Date();
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+}
+
+function renderBodyCompositionDashboard(member, memberMeasurements) {
+  const latest = memberMeasurements[0];
+  if (!latest) return "";
+  const previous = memberMeasurements[1];
+  const formatKg = (value) => value === null || value === undefined || value === "" ? "-" : `${Number(value).toFixed(1)} kg`;
+  const trend = previous
+    ? `${formatSigned(Number(latest.weight) - Number(previous.weight))} kg`
+    : "First measurement";
+  const trendSub = previous ? `since ${previous.measurement_date}` : "No previous measurement";
+  const range = latest.healthy_weight_min != null && latest.healthy_weight_max != null
+    ? `${Number(latest.healthy_weight_min).toFixed(1)}-${Number(latest.healthy_weight_max).toFixed(1)} kg`
+    : "-";
+  const muscleSub = Number(latest.muscle_is_estimated || 0) === 1
+    ? "Approximate value"
+    : latest.muscle_percent != null ? `${Number(latest.muscle_percent).toFixed(1)}% scan value` : "Calculated value";
+  return `
+    <section class="body-composition-dashboard">
+      <div class="section-heading">
+        <div><h2>Body Composition</h2><p>Karada Scan values and height-based targets from ${escapeHtml(latest.measurement_date)}</p></div>
+        ${icons.activity}
+      </div>
+      <div class="stats-grid grid">
+        ${stat("Current Weight", formatKg(latest.weight), "Karada Scan", icons.activity, "bg-primary")}
+        ${stat("Ideal Weight", formatKg(latest.ideal_weight), `${escapeHtml(member.gender || "Gender required")} height formula`, icons.target, "bg-emerald")}
+        ${stat("Healthy Weight Range", range, "ideal weight +/- 2 kg", icons.check, "bg-blue")}
+        ${stat("Fat Mass", formatKg(latest.fat_mass), latest.body_fat_category || "Calculated value", icons.target, "bg-violet")}
+        ${stat("Lean Body Mass", formatKg(latest.lean_body_mass), "Calculated value", icons.activity, "bg-emerald")}
+        ${stat("Muscle Mass", formatKg(latest.muscle_mass), muscleSub, icons.bolt || icons.trophy, "bg-primary")}
+        ${stat("Visceral Fat Status", latest.visceral_fat_status || "-", `Scan value ${latest.visceral_fat}`, icons.target, latest.visceral_fat_status === "Normal" ? "bg-emerald" : "bg-amber")}
+        ${stat("Weight To Lose / Gain", latest.weight_status || "-", formatKg(latest.weight_difference), icons.trophy, "bg-amber")}
+        ${stat("Measurement Trend", trend, trendSub, icons.history, "bg-blue")}
+      </div>
+    </section>
   `;
 }
 
@@ -1295,7 +1693,7 @@ function renderMemberEditForm(member) {
   return `
     <article class="card member-edit-card">
       <div class="section-heading">
-        <div><h2>Edit Member Details</h2><p>Admin can update this member's personal details, goal, card type, and club.</p></div>
+        <div><h2>Edit Member Details</h2><p>Admin can update this member's personal details, goal, and club.</p></div>
         ${icons.user}
       </div>
       <form id="memberEditForm" class="form-grid">
@@ -1309,8 +1707,6 @@ function renderMemberEditForm(member) {
         <label><span class="label">Date of Birth</span><input name="dob" id="profileMemberDob" type="date" value="${escapeHtml(member.dob || "")}" /></label>
         <label><span class="label">Height (cm)</span><input name="height" type="number" min="80" max="250" step="0.1" value="${escapeHtml(member.height || "")}" /></label>
         <label><span class="label">Nutrition Club</span><input name="nutritionClub" value="${escapeHtml(member.nutrition_club || "Main Nutrition Club")}" /></label>
-        <label><span class="label">Membership/Card Type</span>${cardTypeSelect(member.card_type || "Trial Card")}</label>
-        <label><span class="label">Marathon Member</span><select name="marathon"><option value="0" ${Number(member.marathon || 0) === 1 ? "" : "selected"}>No</option><option value="1" ${Number(member.marathon || 0) === 1 ? "selected" : ""}>Yes</option></select></label>
         <label><span class="label">Primary Goal</span><input id="profileMemberGoal" name="goal" value="${escapeHtml(member.goal || "")}" placeholder="Weight Loss, Weight Gain..." /></label>
         <div class="wide goal-chip-row">
           ${goalOptions().map((goal) => `<button type="button" data-action="set-profile-member-goal" data-goal="${escapeHtml(goal)}">${escapeHtml(goal)}</button>`).join("")}
@@ -1325,26 +1721,28 @@ function renderMemberEditForm(member) {
   `;
 }
 
-function renderCardPaymentForm(member, card) {
+function renderCardPaymentForm(member, card, includeCard = true) {
   const today = new Date().toISOString().slice(0, 10);
+  const availableCardTypes = availableCardTypesFor(member.id);
+  const preferredCardType = card?.card_type || member.card_type || "Trial Card";
+  const selectedCardType = availableCardTypes.includes(preferredCardType) ? preferredCardType : availableCardTypes[0];
+  const standardAmount = cardStandardAmount(selectedCardType);
+  const selectedPaymentMode = selectedCardType === "Complimentary Card" ? "" : "Cash";
   return `
-      <article class="card card-payment-card">
-        <div class="section-heading">
-        <div><h2>Add Card Payment</h2><p>Record payment and create a new card for this purchase.</p></div>
-        ${icons.wallet}
-      </div>
+      ${includeCard ? `<article class="card card-payment-card">` : `<div class="card-payment-card embedded-card-payment">`}
+      ${includeCard ? `<div class="section-heading"><div><h2>Add Card or Club Benefit</h2><p>Create a paid or complimentary membership card.</p></div>${icons.wallet}</div>` : ""}
       <form id="cardPaymentForm" class="form-grid">
         <input type="hidden" name="memberId" value="${member.id}" />
         <label><span class="label">Payment Date</span><input name="paymentDate" type="date" value="${today}" required /></label>
-        <label><span class="label">Card Type</span>${cardTypeSelect(card?.card_type || member.card_type || "Trial Card")}</label>
-        <label><span class="label">Amount</span><input name="amount" type="number" min="1" step="1" placeholder="Enter amount" required /></label>
-        <label><span class="label">Payment Type</span>${paymentModeSelect()}</label>
-        <label class="wide"><span class="label">Notes</span><textarea name="notes" rows="2" placeholder="Optional receipt or card notes"></textarea></label>
+        <label><span class="label">Card Type</span>${cardTypeSelect(selectedCardType, "cardPaymentCardType", availableCardTypes)}</label>
+        <label><span class="label">Amount</span><input id="cardPaymentAmount" name="amount" type="number" min="0" step="1" value="${standardAmount ?? ""}" placeholder="Enter amount" /></label>
+        <label><span class="label">Payment Type</span>${paymentModeSelect(selectedPaymentMode, true, "cardPaymentMode")}</label>
+        <label class="wide"><span class="label">Notes</span><textarea id="cardPaymentNotes" name="notes" rows="2" placeholder="Optional receipt or card notes"></textarea></label>
         <div class="wide modal-actions">
-          <button class="btn btn-primary" type="submit">${icons.wallet} Save Card Payment</button>
+          <button class="btn btn-primary" type="submit">${icons.wallet} Save Card Entry</button>
         </div>
       </form>
-    </article>
+      ${includeCard ? `</article>` : `</div>`}
   `;
 }
 
@@ -1366,6 +1764,7 @@ function renderUsers() {
               <option value="admin">Admin - full access</option>
             </select>
           </label>
+          <label class="wide"><span class="label">Nutrition Club</span><input name="nutritionClub" value="${escapeHtml(state.user.nutrition_club || "Main Nutrition Club")}" required /></label>
           <div class="wide modal-actions"><button class="btn btn-primary" type="submit">${icons.plus} Create User</button></div>
         </form>
       </article>
@@ -1385,6 +1784,7 @@ function userRow(user) {
       <div>
         <h3>${escapeHtml(user.name)}</h3>
         <p>@${escapeHtml(user.username)}${isSelf ? " - current user" : ""}</p>
+        <small>${escapeHtml(user.nutrition_club || "Main Nutrition Club")}</small>
       </div>
       <div class="user-actions">
         ${roleBadge(user.role)}
@@ -1421,7 +1821,7 @@ function renderGoalOverview() {
 }
 
 function renderSessionControl() {
-  const isAdmin = state.user.role === "admin";
+  const canControlSession = ["admin", "supervisor", "super_admin"].includes(state.user.role);
   const isActive = state.session.status === "ACTIVE";
   return `
     <article class="session-panel ${isActive ? "session-active" : "session-closed"}">
@@ -1432,7 +1832,7 @@ function renderSessionControl() {
         ${state.session.opened_by ? `<p>Opened by ${state.session.opened_by} on ${state.session.opened_on}</p>` : `<p>No active measurement session has been opened for this week.</p>`}
         ${state.session.closed_by ? `<p>Closed by ${state.session.closed_by} on ${state.session.closed_on}</p>` : ""}
       </div>
-      ${isAdmin ? `<div class="session-actions">${isActive ? `<button class="btn btn-outline" data-action="close-session">Close Weekly Measurements</button>` : `<button class="btn btn-primary" data-action="${state.session.closed_by ? "reopen-session" : "start-session"}">${state.session.closed_by ? "Reopen Weekly Measurements" : "Start Weekly Measurements"}</button>`}</div>` : ""}
+      ${canControlSession ? `<div class="session-actions">${isActive ? `<button class="btn btn-outline" data-action="close-session">Close Weekly Measurements</button>` : `<button class="btn btn-primary" data-action="${state.session.closed_by ? "reopen-session" : "start-session"}">${state.session.closed_by ? "Reopen Weekly Measurements" : "Start Weekly Measurements"}</button>`}</div>` : ""}
     </article>
   `;
 }
@@ -1494,14 +1894,9 @@ function renderMeasurementModal(modalValue = "") {
         <input type="hidden" name="measurementId" value="${existing?.id || ""}" />
         <input type="hidden" name="memberId" id="measurementMemberId" value="${selected?.id || ""}" />
         <div class="section-heading">
-          <div><h2>${existing ? "Edit Measurement" : profileMode ? `Add Measurement - ${escapeHtml(selected?.name || "")}` : "Add Member Data"}</h2><p>Manual Entry - ${state.week} - Session ${state.session.id}</p></div>
+          <div><h2>${existing ? "Edit Measurement" : profileMode ? `Add Measurement - ${escapeHtml(selected?.name || "")}` : "Add Measurement"}</h2><p>${state.week} - Session ${state.session.id}</p></div>
           <button class="ghost-icon modal-close" type="button" data-action="close-modal" aria-label="Close">x</button>
         </div>
-        ${profileMode ? "" : `<div class="entry-tabs">
-          <button class="active" type="button">Manual Entry</button>
-          <button type="button">CSV / Text</button>
-          <button type="button">Image / OCR</button>
-        </div>`}
         <div class="form-grid">
           ${profileMode ? `<div class="wide selected-filter"><span>Saving measurement for <strong>${escapeHtml(selected?.name || "")}</strong></span></div>` : `
           <label class="wide"><span class="label">Search Member</span><input id="measurementMemberSearch" placeholder="${measurementSearchPlaceholder}" value="${selected ? escapeHtml(selected.name) : ""}" /></label>
@@ -1517,7 +1912,7 @@ function renderMeasurementModal(modalValue = "") {
           <label><span class="label">Height (cm)</span><input name="height" id="measurementHeight" type="number" step="0.1" value="${value("height", selected?.height || latestMeasurementFor(selected?.id)?.height || "170")}" placeholder="e.g. 172" required /></label>
           ${profileMode ? "" : `
           <label><span class="label">Age</span><input name="age" type="number" step="1" placeholder="e.g. 35" /></label>
-          <label><span class="label">Gender</span><select name="gender" id="measurementGender"><option value="">Select...</option><option ${selected?.gender === "Male" ? "selected" : ""}>Male</option><option ${selected?.gender === "Female" ? "selected" : ""}>Female</option></select></label>
+          <label><span class="label">Gender</span><select name="gender" id="measurementGender" required><option value="">Select...</option><option ${selected?.gender === "Male" ? "selected" : ""}>Male</option><option ${selected?.gender === "Female" ? "selected" : ""}>Female</option></select></label>
           <label class="wide"><span class="label">Purpose of Visit</span><input name="goal" id="measurementGoal" value="${escapeHtml(selected?.goal || "")}" placeholder="e.g. Weight Loss, Health & Fitness, Muscle Building..." /></label>
           <div class="wide goal-chip-row">
             ${goalOptions().map((goal) => `<button type="button" data-action="set-measurement-goal" data-goal="${escapeHtml(goal)}">${escapeHtml(goal)}</button>`).join("")}
@@ -1526,13 +1921,12 @@ function renderMeasurementModal(modalValue = "") {
           <div class="wide form-section-label">Health Metrics</div>
           <label><span class="label">Weight (kg)*</span><input name="weight" type="number" step="0.1" value="${value("weight")}" placeholder="e.g. 82.5" required /></label>
           <label><span class="label">Body Fat %</span><input name="bodyFat" type="number" step="0.1" value="${value("body_fat")}" placeholder="e.g. 28.3" required /></label>
+          <label><span class="label">Visceral Fat</span><input name="visceralFat" type="number" step="0.1" value="${value("visceral_fat")}" placeholder="e.g. 12.5" required /></label>
+          <label><span class="label">BMR (kcal)</span><input name="bmr" type="number" step="1" value="${value("bmr")}" placeholder="e.g. 1650" /></label>
           <label><span class="label">BMI</span><input name="bmi" type="number" step="0.1" value="${value("bmi")}" placeholder="Enter KaradaScan BMI" /></label>
           <label><span class="label">BMA</span><input name="bma" type="number" step="0.1" value="${value("bma")}" placeholder="Enter BMA" /></label>
-          <label><span class="label">BMR (kcal)</span><input name="bmr" type="number" step="1" placeholder="e.g. 1650" /></label>
-          <label><span class="label">Visceral Fat</span><input name="visceralFat" type="number" step="1" value="${value("visceral_fat")}" placeholder="e.g. 12" required /></label>
-          <label><span class="label">Muscle Mass (kg)</span><input name="muscleMass" type="number" step="0.1" value="${value("muscle_mass")}" placeholder="e.g. 54.2" required /></label>
-          <label><span class="label">Body Age</span><input name="metabolicAge" type="number" step="1" value="${value("metabolic_age")}" placeholder="e.g. 38" required /></label>
-          <label><span class="label">Subcutaneous Fat</span><input name="subcutaneousFat" type="number" step="0.1" placeholder="e.g. 22.4" /></label>
+          <label><span class="label">Subcutaneous Fat</span><input name="subcutaneousFat" type="number" step="0.1" value="${value("subcutaneous_fat")}" placeholder="e.g. 22.4" /></label>
+          <label><span class="label">Muscle %</span><input name="musclePercent" type="number" min="0" max="100" step="0.1" value="${value("muscle_percent")}" /></label>
           <label><span class="label">Waist (cm)</span><input name="waist" type="number" step="0.1" value="${value("waist", "0")}" required /></label>
           <label><span class="label">Hip (cm)</span><input name="hip" type="number" step="0.1" value="${value("hip", "0")}" required /></label>
           <label><span class="label">Chest (cm)</span><input name="chest" type="number" step="0.1" value="${value("chest", "0")}" required /></label>
@@ -1554,11 +1948,20 @@ function stat(label, value, sub, icon, colorClass) {
 }
 
 function goalProgress(member) {
-  const baseline = memberBaselines[member.id] || { weight: 70, bodyFat: 25, muscleMass: 25, waist: 85, strength: 50 };
   const memberMeasurements = measurementsFor(member.id);
   const latest = memberMeasurements[0];
   const previous = memberMeasurements[1];
-  const synthetic = currentFromBaseline(member.id, baseline);
+  const first = memberMeasurements[memberMeasurements.length - 1];
+  const emptyMeasurement = { weight: 0, bodyFat: 0, muscleMass: 0, waist: 0, visceralFat: 0, bmi: 0, strength: 0 };
+  const measurementValues = (measurement) => measurement ? {
+    weight: Number(measurement.weight || 0),
+    bodyFat: Number(measurement.body_fat || 0),
+    muscleMass: Number(measurement.muscle_mass || 0),
+    waist: Number(measurement.waist || 0),
+    visceralFat: Number(measurement.visceral_fat || 0),
+    bmi: Number(measurement.bmi || 0),
+    strength: 0,
+  } : emptyMeasurement;
   const current = latest ? {
     weight: Number(latest.weight),
     bodyFat: Number(latest.body_fat),
@@ -1566,16 +1969,10 @@ function goalProgress(member) {
     waist: Number(latest.waist),
     visceralFat: Number(latest.visceral_fat || 0),
     bmi: Number(latest.bmi || 0),
-    strength: synthetic.strength,
-  } : synthetic;
-  const previousCurrent = previous ? {
-    weight: Number(previous.weight),
-    bodyFat: Number(previous.body_fat),
-    muscleMass: Number(previous.muscle_mass),
-    waist: Number(previous.waist),
-    visceralFat: Number(previous.visceral_fat || 0),
-    bmi: Number(previous.bmi || 0),
-  } : null;
+    strength: 0,
+  } : emptyMeasurement;
+  const baseline = measurementValues(first || latest);
+  const previousCurrent = previous ? measurementValues(previous) : null;
   const fatMassStart = baseline.weight * baseline.bodyFat / 100;
   const fatMassNow = current.weight * current.bodyFat / 100;
   const metrics = {
@@ -1591,6 +1988,7 @@ function goalProgress(member) {
     weeklyVisceralFatLoss: previousCurrent ? round(previousCurrent.visceralFat - current.visceralFat, 1) : 0,
     weeklyBmiReduced: previousCurrent ? round(previousCurrent.bmi - current.bmi, 1) : 0,
     visceralSingleDigit: latest ? Number(latest.visceral_fat) < 10 : false,
+    hasPrevious: !!previousCurrent,
   };
   const goal = normalizeGoal(member.goal);
   if (goal === "gain") return scoreWeightGain(metrics);
@@ -1603,7 +2001,7 @@ function scoreWeightLoss(metrics) {
   return {
     ...metrics,
     ...formula,
-    driver: `Fat loss ${formatSigned(metrics.fatMassLost)} kg, muscle ${formatSigned(metrics.muscleGain)} kg`,
+    driver: metrics.hasPrevious ? `Fat loss ${formatSigned(metrics.fatMassLost)} kg, muscle ${formatSigned(metrics.muscleGain)} kg` : "No previous measurement",
     weights: "Muscle Gain 40x, Fat Loss 20x, Visceral Fat Loss 20x, BMI Reduction 10x",
   };
 }
@@ -1615,7 +2013,7 @@ function scoreWeightGain(metrics) {
     ...formula,
     healthyWeightGain: Math.max(metrics.weightChange, 0),
     bodyCompositionImprovement: round(metrics.muscleGain - Math.max(metrics.bodyFatChange, 0) * 0.35, 1),
-    driver: `Muscle ${formatSigned(metrics.muscleGain)} kg, weight ${formatSigned(metrics.weightChange)} kg`,
+    driver: metrics.hasPrevious ? `Muscle ${formatSigned(metrics.muscleGain)} kg, weight ${formatSigned(metrics.weightChange)} kg` : "No previous measurement",
     weights: "Muscle Gain 40x, Fat Loss 20x, Visceral Fat Loss 20x, BMI Reduction 10x",
   };
 }
@@ -1625,12 +2023,15 @@ function scoreBodyComposition(metrics) {
   return {
     ...metrics,
     ...formula,
-    driver: `Muscle ${formatSigned(metrics.muscleGain)} kg, body fat ${formatSigned(-metrics.bodyFatReduced)}%`,
+    driver: metrics.hasPrevious ? `Muscle ${formatSigned(metrics.muscleGain)} kg, body fat ${formatSigned(-metrics.bodyFatReduced)}%` : "No previous measurement",
     weights: "Muscle Gain 40x, Fat Loss 20x, Visceral Fat Loss 20x, BMI Reduction 10x",
   };
 }
 
 function weeklyScoreFormula(metrics) {
+  if (!metrics.hasPrevious) {
+    return { score: 0, scoreBreakdown: { muscleScore: 0, fatScore: 0, visceralLossScore: 0, bmiScore: 0 } };
+  }
   const muscleScore = Math.max(metrics.weeklyMuscleGain, 0) * 40;
   const fatScore = Math.max(metrics.weeklyFatLoss, 0) * 20;
   const visceralLossScore = metrics.weeklyVisceralFatLoss > 0 ? metrics.weeklyVisceralFatLoss * 20 : metrics.visceralSingleDigit ? 10 : 0;
@@ -1718,23 +2119,27 @@ function overallBadge(entry, index) {
 }
 
 function visceralImprovement(entry) {
-  const latest = latestMeasurementFor(entry.member.id);
-  if (latest) return Math.max(0, 10 - Number(latest.visceral_fat));
-  return Math.max(0, entry.progress.bodyFatReduced / 2);
+  const history = measurementsFor(entry.member.id);
+  if (history.length < 2) return 0;
+  return Math.max(0, Number(history[1].visceral_fat || 0) - Number(history[0].visceral_fat || 0));
 }
 
 function idealDistance(member) {
-  const progress = goalProgress(member);
-  const baseline = memberBaselines[member.id] || { weight: 70 };
-  const currentWeight = baseline.weight + progress.weightChange;
-  const ideal = normalizeGoal(member.goal) === "gain" ? baseline.weight + 3 : baseline.weight - 4;
-  return Math.abs(currentWeight - ideal);
+  const latest = latestMeasurementFor(member.id);
+  if (!latest || latest.ideal_weight === null || latest.ideal_weight === undefined) return Number.POSITIVE_INFINITY;
+  return Math.abs(Number(latest.weight) - Number(latest.ideal_weight));
 }
 
 function idealPace(member) {
-  const progress = goalProgress(member);
-  if (normalizeGoal(member.goal) === "gain") return Math.max(progress.weightChange, 0);
-  return Math.max(-progress.weightChange, 0);
+  const history = measurementsFor(member.id);
+  if (history.length < 2) return 0;
+  const latest = history[0];
+  const previous = history[1];
+  const target = Number(latest.ideal_weight);
+  if (!Number.isFinite(target)) return 0;
+  const previousDistance = Math.abs(Number(previous.weight) - target);
+  const currentDistance = Math.abs(Number(latest.weight) - target);
+  return Math.max(previousDistance - currentDistance, 0);
 }
 
 function rankingIcon(name) {
@@ -1761,21 +2166,19 @@ function measurementsFor(memberId) {
 
 function measurementHistoryRow(row, previous) {
   const change = previous ? formatSigned(Number(row.weight) - Number(previous.weight)) : "-";
-  return `<tr><td>${row.measurement_date}</td><td>${row.weight}</td><td>${row.body_fat}</td><td>${row.muscle_mass}</td><td>${row.visceral_fat}</td><td>${row.bmi}</td><td>${row.bma || "-"}</td><td>${row.bmr || "-"}</td><td>${change}</td></tr>`;
+  const muscle = `${row.muscle_mass}${Number(row.muscle_is_estimated || 0) === 1 ? "<small>Approximate value</small>" : ""}`;
+  return `<tr><td>${row.measurement_date}</td><td>${row.weight}</td><td>${row.body_fat}</td><td>${muscle}</td><td>${row.visceral_fat}</td><td>${row.bmi}</td><td>${row.bma || "-"}</td><td>${row.bmr || "-"}</td><td>${change}</td></tr>`;
 }
 
 function activeCardFor(memberId) {
-  const paidCardIds = new Set(
-    state.payments
-      .filter((payment) => Number(payment.member_id) === Number(memberId) && payment.card_id)
-      .map((payment) => Number(payment.card_id))
-  );
   const cards = state.cards
     .filter((card) => Number(card.member_id) === Number(memberId))
-    .filter((card) => !paidCardIds.size || paidCardIds.has(Number(card.id)))
+    .filter((card) => card.card_type !== "Marathon")
     .sort((a, b) => {
       const activeScore = (b.status === "Active" ? 1 : 0) - (a.status === "Active" ? 1 : 0);
       if (activeScore) return activeScore;
+      const dateScore = String(a.start_date || "").localeCompare(String(b.start_date || ""));
+      if (dateScore) return dateScore;
       return Number(a.id || 0) - Number(b.id || 0);
     });
   return cards[0] || null;
@@ -1842,14 +2245,36 @@ function goalOptions() {
   return ["Weight Loss", "Weight Gain", "Health & Fitness", "Muscle Building", "Rehabilitation", "Diabetes Management", "Post-natal Recovery"];
 }
 
-function paymentModeSelect() {
+function paymentModeSelect(selected = "Cash", allowEmpty = false, id = "") {
   const modes = ["Cash", "PhonePay", "Google Pay", "Credit Card", "Debit Card"];
-  return `<select name="paymentMode">${modes.map((mode) => `<option>${mode}</option>`).join("")}</select>`;
+  return `<select ${id ? `id="${id}"` : ""} name="paymentMode">${allowEmpty ? `<option value="" ${selected ? "" : "selected"}>Not applicable</option>` : ""}${modes.map((mode) => `<option ${selected === mode ? "selected" : ""}>${mode}</option>`).join("")}</select>`;
 }
 
-function cardTypeSelect(selected = "") {
-  const types = ["Complimentary Card", "Trial Card", "10 Days Card / NMS", "26 Days Card", "30 Days Card", "Marathon"];
-  return `<select name="cardType">${types.map((type) => `<option ${selected === type ? "selected" : ""}>${type}</option>`).join("")}</select>`;
+function cardTypeSelect(selected = "", id = "", allowedTypes = null) {
+  const types = allowedTypes || ["Complimentary Card", "Trial Card", "Coupon", "10 Days Card / NMS", "26 Days Card", "30 Days Card", "Marathon"];
+  return `<select ${id ? `id="${id}"` : ""} name="cardType">${types.map((type) => `<option ${selected === type ? "selected" : ""}>${type}</option>`).join("")}</select>`;
+}
+
+function availableCardTypesFor(memberId) {
+  const usedLifetimeTypes = new Set(
+    state.cards
+      .filter((card) => Number(card.member_id) === Number(memberId))
+      .map((card) => card.card_type),
+  );
+  return ["Complimentary Card", "Trial Card", "Coupon", "10 Days Card / NMS", "26 Days Card", "30 Days Card", "Marathon"]
+    .filter((type) => !["Complimentary Card", "Trial Card"].includes(type) || !usedLifetimeTypes.has(type));
+}
+
+function cardStandardAmount(cardType) {
+  return {
+    "Complimentary Card": 250,
+    "Coupon": 250,
+    "Trial Card": 700,
+    "10 Days Card / NMS": 2400,
+    "26 Days Card": 5400,
+    "30 Days Card": 6200,
+    "Marathon": 300,
+  }[cardType] ?? null;
 }
 
 function currentFromBaseline(memberId, baseline) {
@@ -1920,6 +2345,10 @@ function memberContact(member) {
   return `Member ID ${escapeHtml(memberCode(member))}`;
 }
 
+function isCurrentMonthMarathon(member) {
+  return Number(member?.marathon_active || 0) === 1;
+}
+
 function memberCard(m) {
   const progress = goalProgress(m);
   const active = Number(m.active ?? 1) === 1;
@@ -1929,7 +2358,7 @@ function memberCard(m) {
       <div>
         <h3>${escapeHtml(m.name)}</h3>
         <p>${memberIdentity(m)} - Last measured: ${m.last_measured}</p>
-        <div class="badges">${goalBadge(m.goal)}<span class="badge badge-violet">Goal Score ${progress.score}</span>${active ? "" : `<span class="badge badge-red">Hidden</span>`}${m.marathon ? `<span class="badge badge-amber">${icons.trophy} Marathon</span>` : ""}${m.measured ? `<span class="badge badge-emerald">Measured</span>` : `<span class="badge badge-red">Pending</span>`}</div>
+        <div class="badges">${goalBadge(m.goal)}<span class="badge badge-violet">Goal Score ${progress.score}</span>${active ? "" : `<span class="badge badge-red">Hidden</span>`}${isCurrentMonthMarathon(m) ? `<span class="badge badge-amber">${icons.trophy} Marathon</span>` : ""}${m.measured ? `<span class="badge badge-emerald">Measured</span>` : `<span class="badge badge-red">Pending</span>`}</div>
       </div>
       <div class="rank-score">
         <strong>${progress.score}</strong>
@@ -1942,16 +2371,19 @@ function memberCard(m) {
 }
 
 function measurementRow(m) {
-  const canEdit = state.user.role === "admin" && state.session.status === "ACTIVE";
+  const canEdit = ["admin", "supervisor", "super_admin"].includes(state.user.role) && state.session.status === "ACTIVE";
   return `
     <tr>
       <td><strong>${escapeHtml(m.member_name)}</strong><br /><span>${m.session_id}</span></td>
       <td>${m.week_number}</td>
       <td>${m.weight}</td>
       <td>${m.body_fat}</td>
-      <td>${m.muscle_mass}</td>
-      <td><strong>${m.bmi}</strong></td>
-      <td>${m.bma || "-"}</td>
+      <td>${m.visceral_fat}</td>
+      <td>${m.bmr ?? "-"}</td>
+      <td>${m.bmi}</td>
+      <td>${m.bma ?? "-"}</td>
+      <td>${m.subcutaneous_fat ?? "-"}</td>
+      <td>${m.muscle_mass}${Number(m.muscle_is_estimated || 0) === 1 ? "<small>Approximate value</small>" : ""}</td>
       <td>${supervisorName(m.supervisor_id)}</td>
       <td>${m.measurement_date}</td>
       <td>${canEdit ? `<button class="btn btn-outline mini" data-action="edit-measurement" data-measurement-id="${m.id}">${icons.edit} Edit</button>` : `<span class="readonly-label">Read-only</span>`}</td>
@@ -2053,6 +2485,7 @@ function bindEvents() {
   document.querySelectorAll("[data-action]").forEach((button) => button.addEventListener("click", handleAction));
   document.querySelector("#auditFilterForm")?.addEventListener("submit", applyAuditFilters);
   document.querySelector("#paymentFilterForm")?.addEventListener("submit", applyPaymentFilters);
+  document.querySelector("#memberReportForm")?.addEventListener("submit", loadMemberReport);
   document.querySelector("#paymentApplyButton")?.addEventListener("click", applyPaymentFilters);
   document.querySelector("#paymentClearButton")?.addEventListener("click", clearPaymentFilters);
   document.querySelector("#paymentShowSum")?.addEventListener("change", (event) => {
@@ -2067,12 +2500,18 @@ function bindEvents() {
     };
     render();
   });
+  document.querySelector("#paymentMemberSearch")?.addEventListener("input", (event) => {
+    state.paymentMemberQuery = event.target.value;
+    render();
+    focusSearchInput("#paymentMemberSearch");
+  });
   document.querySelector("#memberForm")?.addEventListener("submit", saveMember);
   document.querySelector("#memberEditForm")?.addEventListener("submit", updateMemberDetails);
   document.querySelector("#userForm")?.addEventListener("submit", saveUser);
   document.querySelector("#measurementForm")?.addEventListener("submit", saveMeasurement);
   document.querySelector("#attendanceForm")?.addEventListener("submit", saveAttendance);
   document.querySelector("#cardPaymentForm")?.addEventListener("submit", saveCardPayment);
+  document.querySelector("#cardPaymentCardType")?.addEventListener("change", updateCardPaymentDefaults);
   document.querySelector("#showHiddenMembers")?.addEventListener("change", (event) => {
     state.showHiddenMembers = event.target.checked;
     render();
@@ -2097,6 +2536,15 @@ function bindEvents() {
     state.attendanceViewDate = event.target.value;
     render();
   });
+  document.querySelector("#profileAttendanceMonth")?.addEventListener("change", async (event) => {
+    state.profileAttendanceMonth = event.target.value || currentLocalMonth();
+    try {
+      await loadProfileAttendance();
+      render();
+    } catch (error) {
+      showToast(error.message);
+    }
+  });
   document.querySelector("#attendanceEntryDate")?.addEventListener("change", (event) => {
     state.attendanceEntryDate = event.target.value;
     state.attendanceMemberId = "";
@@ -2117,6 +2565,7 @@ function bindEvents() {
     state.rankingsMarathonOnly = event.target.checked;
     render();
   });
+  document.querySelector("#dashboardClubFilter")?.addEventListener("change", loadDashboardClubSummary);
   document.querySelector("#measurementMemberSearch")?.addEventListener("input", handleMeasurementLookup);
   document.querySelector("#measurementDate")?.addEventListener("change", updateMeasurementWeekFromDate);
   document.querySelector("#memberDob")?.addEventListener("change", () => syncAgeFromDob("#memberDob", "#memberAge"));
@@ -2195,6 +2644,11 @@ async function handleLogin(event) {
     state.route = data.user.role === "member" ? "history" : "dashboard";
     state.error = "";
     applyData(data);
+    if (state.user?.role === "member") {
+      state.profileMemberId = state.user.member_id || state.members[0]?.id || "";
+      state.profileAttendanceMonth = state.profileAttendanceMonth || currentLocalMonth();
+      if (state.profileMemberId) await loadProfileAttendance();
+    }
   } catch (error) {
     state.error = error.message;
   }
@@ -2206,6 +2660,7 @@ async function changeRoute(event) {
   if (!route) return;
   state.route = route;
   state.query = "";
+  if (route === "rankings") state.scoringFormulaOpen = false;
   if (route === "audit" && state.user.role === "admin") {
     try {
       await loadAuditEntries();
@@ -2213,14 +2668,66 @@ async function changeRoute(event) {
       showToast(error.message);
     }
   }
-  if (route === "payments" && state.user.role === "admin") {
+  if (route === "payments" && ["admin", "supervisor", "super_admin"].includes(state.user.role)) {
     try {
       await loadPaymentEntries();
     } catch (error) {
       showToast(error.message);
     }
   }
+  if (route === "marathon" && state.user.role === "admin") {
+    try {
+      await loadMarathonData();
+    } catch (error) {
+      showToast(error.message);
+    }
+  }
+  if (route === "reports" && ["admin", "super_admin"].includes(state.user.role)) {
+    state.reportMemberId = state.reportMemberId || String(state.members[0]?.id || "");
+    state.reportThroughDate = state.reportThroughDate || new Date().toISOString().slice(0, 10);
+    if (state.reportMemberId) {
+      try {
+        await fetchMemberReport();
+      } catch (error) {
+        showToast(error.message);
+      }
+    }
+  }
   render();
+}
+
+async function loadMemberReport(event) {
+  event.preventDefault();
+  const values = Object.fromEntries(new FormData(event.currentTarget).entries());
+  state.reportMemberId = values.memberId || "";
+  state.reportThroughDate = values.throughDate || "";
+  try {
+    await fetchMemberReport();
+    render();
+    showToast("Member report generated.");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function fetchMemberReport() {
+  if (!state.reportMemberId) {
+    state.memberReport = null;
+    return;
+  }
+  state.memberReport = await api(`/api/member-report?userId=${encodeURIComponent(state.user.id)}&memberId=${encodeURIComponent(state.reportMemberId)}&throughDate=${encodeURIComponent(state.reportThroughDate)}`);
+}
+
+async function loadDashboardClubSummary(event) {
+  state.dashboardClubFilter = event.target.value;
+  try {
+    const data = await api(`/api/dashboard?userId=${encodeURIComponent(state.user.id)}&club=${encodeURIComponent(state.dashboardClubFilter)}`);
+    state.dashboardSummary = data.summary;
+    state.dashboardClubs = data.clubs || state.dashboardClubs;
+    render();
+  } catch (error) {
+    showToast(error.message);
+  }
 }
 
 async function handleAction(event) {
@@ -2236,6 +2743,21 @@ async function handleAction(event) {
     }
     if (action === "refresh") return refreshData("Dashboard refreshed");
     if (action === "re-score-all") return refreshData("Goal scores recalculated.");
+    if (action === "reset-marathon") {
+      const data = await api("/api/marathon/reset", {
+        method: "POST",
+        body: JSON.stringify({ userId: state.user.id }),
+      });
+      applyData(data);
+      await loadMarathonData();
+      render();
+      showToast("Previous-month Marathon statuses reset.");
+      return;
+    }
+    if (action === "print-member-report") {
+      window.print();
+      return;
+    }
     if (action === "download-export") {
       const url = `/api/export?userId=${encodeURIComponent(state.user.id)}&ts=${Date.now()}`;
       window.location.href = url;
@@ -2254,6 +2776,12 @@ async function handleAction(event) {
     }
     if (action === "toggle-member-entry") {
       state.memberEntryOpen = !state.memberEntryOpen;
+      render();
+      return;
+    }
+    if (action === "toggle-scoring-formula") {
+      if (!["admin", "supervisor", "super_admin"].includes(state.user.role) || !state.scoringFormula) return;
+      state.scoringFormulaOpen = !state.scoringFormulaOpen;
       render();
       return;
     }
@@ -2281,6 +2809,20 @@ async function handleAction(event) {
       await loadPaymentEntries();
       render();
       showToast("Member payments loaded.");
+      return;
+    }
+    if (action === "select-card-payment-member") {
+      state.paymentPurchaseMemberId = event.currentTarget.dataset.memberId || "";
+      const member = state.members.find((item) => String(item.id) === String(state.paymentPurchaseMemberId));
+      state.paymentMemberQuery = member?.name || state.paymentMemberQuery;
+      render();
+      return;
+    }
+    if (action === "clear-card-payment-member") {
+      state.paymentPurchaseMemberId = "";
+      state.paymentMemberQuery = "";
+      render();
+      window.setTimeout(() => document.querySelector("#paymentMemberSearch")?.focus(), 0);
       return;
     }
     if (action === "delete-user") {
@@ -2333,9 +2875,11 @@ async function handleAction(event) {
     }
     if (action === "view-profile") {
       state.profileMemberId = event.currentTarget.dataset.memberId;
+      state.profileAttendanceMonth = currentLocalMonth();
       state.route = "profile";
       state.modal = null;
       state.profileEditOpen = false;
+      await loadProfileAttendance();
       render();
       return;
     }
@@ -2347,7 +2891,7 @@ async function handleAction(event) {
       return;
     }
     if (action === "edit-measurement") {
-      if (state.user.role !== "admin") return showToast("Only Admin can edit measurements.");
+      if (!["admin", "supervisor", "super_admin"].includes(state.user.role)) return showToast("You do not have permission to edit measurements.");
       if (state.session.status !== "ACTIVE") return showToast("Reopen the session before editing measurements.");
       state.modal = `edit:${event.currentTarget.dataset.measurementId}`;
       render();
@@ -2435,6 +2979,24 @@ async function loadPaymentEntries() {
   state.paymentTotal = Number(data.total || 0);
 }
 
+async function loadMarathonData() {
+  state.marathonData = await api(`/api/marathon?userId=${encodeURIComponent(state.user.id)}`);
+}
+
+async function loadProfileAttendance() {
+  if (!state.profileMemberId) return;
+  const month = state.profileAttendanceMonth || currentLocalMonth();
+  const params = new URLSearchParams({
+    userId: state.user.id,
+    memberId: state.profileMemberId,
+    month,
+  });
+  const data = await api(`/api/member-attendance?${params.toString()}`);
+  state.profileAttendanceMonth = data.month || month;
+  state.profileAttendanceRows = data.entries || [];
+  state.profileAttendanceKey = `${state.profileMemberId}:${state.profileAttendanceMonth}`;
+}
+
 async function postAndApply(path, message) {
   const data = await api(path, { method: "POST", body: JSON.stringify({ userId: state.user.id }) });
   applyData(data);
@@ -2445,8 +3007,10 @@ async function postAndApply(path, message) {
 async function refreshData(message = "") {
   const data = await api(`/api/bootstrap?userId=${encodeURIComponent(state.user.id)}`);
   applyData(data);
-  if (state.route === "payments" && state.user.role === "admin") await loadPaymentEntries();
+  if (state.route === "payments" && ["admin", "supervisor", "super_admin"].includes(state.user.role)) await loadPaymentEntries();
   if (state.route === "audit" && state.user.role === "admin") await loadAuditEntries();
+  if (state.route === "marathon" && state.user.role === "admin") await loadMarathonData();
+  if ((state.route === "profile" || (state.route === "history" && state.user.role === "member")) && state.profileMemberId) await loadProfileAttendance();
   render();
   if (message) showToast(message);
 }
@@ -2574,18 +3138,50 @@ async function saveCardPayment(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const payment = Object.fromEntries(new FormData(form).entries());
+  const standardAmount = cardStandardAmount(payment.cardType);
+  const complimentary = payment.cardType === "Complimentary Card";
+  const enteredAmount = Number(payment.amount || 0);
+  if (complimentary && enteredAmount <= 0) payment.amount = String(standardAmount || 250);
+  if (!complimentary && enteredAmount <= 0) {
+    showToast("Enter a payment amount for this card.");
+    return;
+  }
+  if (!complimentary && !String(payment.paymentMode || "").trim()) {
+    showToast("Select a payment type for this card.");
+    return;
+  }
+  if (payment.cardType === "Marathon" && enteredAmount !== 300 && !String(payment.notes || "").trim()) {
+    showToast("Please add a note because the Marathon amount is different from the default ₹300.");
+    return;
+  }
+  if (payment.cardType !== "Marathon" && !complimentary && standardAmount !== null && enteredAmount < standardAmount && !String(payment.notes || "").trim()) {
+    showToast(`Add notes explaining why the amount is below Rs ${standardAmount}.`);
+    return;
+  }
   try {
     const data = await api("/api/card-payment", {
       method: "POST",
       body: JSON.stringify({ userId: state.user.id, payment }),
     });
     applyData(data);
-    state.profileMemberId = payment.memberId;
-    state.route = "profile";
+    state.paymentPurchaseMemberId = payment.memberId;
+    state.route = "payments";
+    await loadPaymentEntries();
     render();
-    showToast("Card payment saved.");
+    showToast(payment.cardType === "Complimentary Card" ? "Complimentary benefit saved and card created." : "Card payment saved and card created.");
   } catch (error) {
     showToast(error.message);
+  }
+}
+
+function updateCardPaymentDefaults(event) {
+  const cardType = event.currentTarget.value;
+  const amount = document.querySelector("#cardPaymentAmount");
+  const paymentMode = document.querySelector("#cardPaymentMode");
+  const standardAmount = cardStandardAmount(cardType);
+  if (amount) amount.value = standardAmount ?? "";
+  if (paymentMode) {
+    paymentMode.value = cardType === "Complimentary Card" ? "" : (paymentMode.value || "Cash");
   }
 }
 

@@ -488,6 +488,26 @@ button {
   margin-bottom: 26px;
 }
 
+.dashboard-club-filter {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 16px;
+}
+
+.dashboard-club-filter label {
+  min-width: 240px;
+}
+
+.dashboard-club-filter select {
+  background: var(--card);
+  border: 1px solid var(--input);
+  border-radius: 8px;
+  color: var(--foreground);
+  height: 40px;
+  padding: 0 12px;
+  width: 100%;
+}
+
 .dashboard-metric-card {
   align-items: flex-start;
   background: var(--card);
@@ -522,11 +542,288 @@ button {
   margin-top: 10px;
 }
 
+.missed-measurements-section {
+  margin: 8px 0 28px;
+}
+
+.missed-measurements-heading {
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.missed-measurements-heading h2 {
+  font-size: 18px;
+  margin: 0;
+}
+
+.missed-measurements-heading p {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  margin: 4px 0 0;
+}
+
+.missed-measurements-heading > svg {
+  color: var(--primary);
+  height: 22px;
+  width: 22px;
+}
+
+.missed-measurements-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+}
+
+.missed-measurement-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.missed-measurement-card-header {
+  align-items: flex-start;
+  border-top: 4px solid #6d9f94;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  padding: 14px 14px 12px;
+}
+
+.missed-measurement-card-header h3 {
+  font-size: 14px;
+  margin: 0;
+}
+
+.missed-measurement-card-header p {
+  color: var(--muted-foreground);
+  font-size: 11px;
+  margin: 4px 0 0;
+}
+
+.missed-measurement-card-header > strong {
+  align-items: center;
+  background: var(--primary-soft);
+  border-radius: 999px;
+  color: var(--primary-strong);
+  display: flex;
+  flex: 0 0 auto;
+  font-size: 14px;
+  height: 30px;
+  justify-content: center;
+  min-width: 30px;
+  padding: 0 8px;
+}
+
+.missed-two .missed-measurement-card-header {
+  border-top-color: #d0a22d;
+}
+
+.missed-three .missed-measurement-card-header {
+  border-top-color: #d57b35;
+}
+
+.missed-long .missed-measurement-card-header {
+  border-top-color: #c95555;
+}
+
+.missed-critical .missed-measurement-card-header {
+  border-top-color: #7b4f91;
+}
+
+.missed-member-list {
+  border-top: 1px solid var(--border);
+  max-height: 190px;
+  overflow-y: auto;
+}
+
+.missed-member-row {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  padding: 10px 14px;
+}
+
+.missed-member-row + .missed-member-row {
+  border-top: 1px solid var(--border);
+}
+
+.missed-member-row span,
+.missed-member-row b,
+.missed-member-row small {
+  display: block;
+  min-width: 0;
+}
+
+.missed-member-row b {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.missed-member-row small {
+  color: var(--muted-foreground);
+  font-size: 10px;
+  margin-top: 2px;
+}
+
+.missed-member-row em {
+  color: var(--muted-foreground);
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.missed-empty {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  margin: 0;
+  padding: 16px 14px;
+}
+
+.member-report-page {
+  display: grid;
+  gap: 20px;
+}
+
+.member-report-controls {
+  align-items: end;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(220px, 1fr) minmax(190px, 0.6fr) auto auto;
+}
+
+.member-report-controls .btn {
+  min-height: 44px;
+}
+
+.member-report-sheet {
+  background: #ffffff;
+  border: 2px solid #176a4b;
+  box-shadow: var(--shadow);
+  color: #123c2d;
+  padding: 24px;
+}
+
+.member-report-header h2 {
+  border-bottom: 3px solid #176a4b;
+  color: #125b40;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 30px;
+  margin: 0 0 16px;
+  padding-bottom: 8px;
+}
+
+.member-report-identity {
+  display: grid;
+  gap: 0;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 18px;
+}
+
+.member-report-identity p {
+  border-bottom: 1px solid #438068;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: auto minmax(0, 1fr);
+  margin: 0;
+  min-height: 38px;
+  padding: 8px 12px;
+}
+
+.member-report-identity span {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.member-report-identity strong {
+  color: #092e21;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.member-report-identity strong small {
+  color: #527067;
+  font-size: 11px;
+  font-weight: 700;
+  margin-left: 8px;
+  white-space: nowrap;
+}
+
+.member-report-table-wrap {
+  overflow-x: auto;
+}
+
+.member-report-table {
+  border-collapse: collapse;
+  min-width: 1260px;
+  table-layout: fixed;
+  width: 100%;
+}
+
+.member-report-table th,
+.member-report-table td {
+  border: 1px solid #287052;
+  height: 48px;
+  padding: 7px 6px;
+  text-align: center;
+}
+
+.member-report-table thead th {
+  background: #e5f4ec;
+  color: #124b36;
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.member-report-table thead th:first-child,
+.member-report-table tbody th {
+  width: 150px;
+}
+
+.member-report-table tbody th {
+  background: #f2f8f5;
+  font-size: 11px;
+  text-align: left;
+}
+
+.member-report-table td {
+  color: #102f24;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.member-report-table tr:last-child th,
+.member-report-table tr:last-child td {
+  border-bottom: 1px solid #287052;
+}
+
+.member-report-footer {
+  color: #527067;
+  font-size: 10px;
+  margin-top: 12px;
+  text-align: right;
+}
+
+.report-empty {
+  min-height: 260px;
+}
+
 .dashboard-main-grid {
   align-items: start;
   display: grid;
   gap: 24px;
   grid-template-columns: minmax(280px, 0.55fr) minmax(420px, 1fr);
+}
+
+.dashboard-main-grid > section {
+  min-width: 0;
 }
 
 .dashboard-section-title {
@@ -646,6 +943,8 @@ button {
 
 .top-performers-table {
   box-shadow: var(--shadow);
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 .top-performers-table td strong {
@@ -737,6 +1036,14 @@ button {
 
 .inline-attendance-form {
   flex-basis: 100%;
+}
+
+.no-card-status {
+  align-self: center;
+  flex: 0 0 auto;
+  min-height: 28px;
+  padding: 6px 10px;
+  white-space: nowrap;
 }
 
 .active-card-panel h3 {
@@ -912,6 +1219,11 @@ button {
   margin-top: 3px;
 }
 
+.today-attendance-table .today-serial-column {
+  text-align: center;
+  width: 72px;
+}
+
 .renewal-card {
   display: grid;
   gap: 12px;
@@ -1047,6 +1359,14 @@ button {
   margin-bottom: 20px;
 }
 
+.body-composition-dashboard {
+  margin: 8px 0 20px;
+}
+
+.body-composition-dashboard .stats-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .profile-summary > .section-heading {
   align-items: flex-start;
   display: grid;
@@ -1076,6 +1396,171 @@ button {
 .profile-history-card td {
   padding-left: 24px;
   padding-right: 24px;
+}
+
+.profile-history-stack {
+  display: grid;
+  gap: 18px;
+}
+
+.profile-attendance-calendar {
+  overflow-x: auto;
+  padding: 0;
+}
+
+.attendance-calendar-heading {
+  gap: 18px;
+  margin: 0;
+  padding: 20px 24px;
+}
+
+.attendance-calendar-heading p {
+  color: var(--muted-foreground);
+  font-size: 13px;
+  margin: 4px 0 0;
+}
+
+.attendance-calendar-heading label {
+  min-width: 220px;
+}
+
+.attendance-calendar-weekdays,
+.attendance-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.attendance-calendar-weekdays {
+  background: var(--muted);
+  border-bottom: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+}
+
+.attendance-calendar-weekdays span {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 800;
+  padding: 10px 6px;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.attendance-calendar-day {
+  align-content: start;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  display: grid;
+  gap: 8px;
+  min-height: 170px;
+  padding: 10px;
+}
+
+.attendance-calendar-day:nth-child(7n) {
+  border-right: 0;
+}
+
+.attendance-calendar-day.empty {
+  background: var(--background);
+}
+
+.attendance-calendar-day.visited {
+  background: var(--primary-soft);
+}
+
+.attendance-calendar-day.today {
+  box-shadow: inset 0 0 0 2px #e5a400;
+}
+
+.calendar-day-number {
+  color: var(--foreground);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.calendar-attendance-entry {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.attendance-type-chip {
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 800;
+  justify-self: start;
+  padding: 4px 6px;
+}
+
+.type-present {
+  background: #c9f3df;
+  color: #08784b;
+}
+
+.type-mega {
+  background: #d9e7ff;
+  color: #245bb8;
+}
+
+.type-lifestyle {
+  background: #e7ddff;
+  color: #5b21b6;
+}
+
+.type-family {
+  background: #fff0c9;
+  color: #936100;
+}
+
+.type-override {
+  background: #fde0e4;
+  color: #b32d3a;
+}
+
+.type-holiday,
+.type-default {
+  background: #e9eeec;
+  color: #52635d;
+}
+
+.type-training {
+  background: #d3f2f2;
+  color: #087f7c;
+}
+
+.calendar-card-name,
+.calendar-card-number,
+.calendar-card-count,
+.calendar-member-count,
+.calendar-guest-count {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.calendar-card-name {
+  font-size: 12px;
+}
+
+.calendar-card-number,
+.calendar-card-count,
+.calendar-member-count {
+  color: var(--muted-foreground);
+  font-size: 10px;
+}
+
+.calendar-card-count {
+  color: var(--primary-strong);
+  font-weight: 800;
+}
+
+.calendar-guest-count {
+  background: #fff0c9;
+  border-radius: 5px;
+  color: #7d5200;
+  font-size: 10px;
+  font-weight: 700;
+  margin-top: 2px;
+  padding: 4px 5px;
 }
 
 .stat-icon {
@@ -1233,9 +1718,34 @@ button {
   padding: 20px;
 }
 
-.formula-card h2 {
+.formula-toggle {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  padding: 0;
+  text-align: left;
+  width: 100%;
+}
+
+.formula-toggle h2 {
   font-size: 16px;
-  margin: 0 0 18px;
+  margin: 0;
+}
+
+.formula-toggle p {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  margin: 4px 0 0;
+}
+
+.formula-card.open .formula-toggle {
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 18px;
+  padding-bottom: 16px;
 }
 
 .formula-grid {
@@ -1455,6 +1965,13 @@ button {
   width: fit-content;
 }
 
+.benefit-value {
+  color: var(--muted-foreground);
+  display: block;
+  font-weight: 700;
+  text-decoration-thickness: 2px;
+}
+
 .ranking-value {
   text-align: right;
 }
@@ -1629,6 +2146,83 @@ button {
 
 .card-payment-card {
   margin-bottom: 16px;
+}
+
+.payment-purchase-card {
+  margin-bottom: 16px;
+}
+
+.payment-member-search {
+  display: block;
+  max-width: 620px;
+}
+
+.payment-member-results {
+  margin-top: 10px;
+  max-width: 620px;
+}
+
+.payment-member-results .lookup-result {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.payment-member-results .lookup-result span,
+.payment-selected-member small {
+  color: var(--muted-foreground);
+  display: block;
+  font-size: 13px;
+  font-weight: 400;
+  margin-top: 3px;
+}
+
+.payment-selected-member {
+  margin-top: 14px;
+}
+
+.embedded-card-payment {
+  border-top: 1px solid var(--border);
+  margin: 16px 0 0;
+  padding-top: 16px;
+}
+
+.payment-search-note {
+  display: block;
+  margin-top: 12px;
+}
+
+.marathon-page {
+  display: grid;
+  gap: 16px;
+}
+
+.marathon-control-row {
+  align-items: center;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(150px, 1fr)) auto;
+}
+
+.marathon-control-row > div {
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.marathon-control-row strong,
+.marathon-control-row span {
+  display: block;
+}
+
+.marathon-control-row strong {
+  color: var(--primary-strong);
+  font-size: 24px;
+}
+
+.marathon-control-row span {
+  color: var(--muted-foreground);
+  font-size: 13px;
+  margin-top: 3px;
 }
 
 .member-edit-card {
@@ -2049,21 +2643,34 @@ tr:last-child td {
   border-top: 1px solid var(--border);
   bottom: 0;
   display: none;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-auto-columns: 78px;
+  grid-auto-flow: column;
+  grid-template-columns: none;
   left: 0;
-  padding: 8px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
   position: fixed;
   right: 0;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  touch-action: pan-x;
   z-index: 10;
+}
+
+.mobile-nav::-webkit-scrollbar {
+  display: none;
 }
 
 .mobile-nav button {
   flex-direction: column;
   font-size: 10px;
   gap: 4px;
-  height: 50px;
+  height: 54px;
   justify-content: center;
   padding: 0;
+  scroll-snap-align: start;
+  width: 78px;
 }
 
 .toast {
@@ -2193,6 +2800,14 @@ svg {
 }
 
 @media (max-width: 920px) {
+  .member-report-controls {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .member-report-identity {
+    grid-template-columns: 1fr 1fr;
+  }
+
   .app-shell {
     display: block;
   }
@@ -2218,6 +2833,10 @@ svg {
     grid-template-columns: 1fr 1fr;
   }
 
+  .body-composition-dashboard .stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .rescore-inline {
     justify-self: stretch;
     margin-top: 0;
@@ -2229,17 +2848,58 @@ svg {
 }
 
 @media (max-width: 620px) {
+  .member-report-controls,
+  .member-report-identity {
+    grid-template-columns: 1fr;
+  }
+
+  .member-report-sheet {
+    padding: 14px;
+  }
+
+  .member-report-header h2 {
+    font-size: 24px;
+  }
+
   .auth-card {
     padding: 22px;
   }
 
   .stats-grid,
-  .dashboard-metrics,
   .two-col,
   .formula-grid,
   .goal-ranking-grid,
   .category-ranking-grid {
     grid-template-columns: 1fr;
+  }
+
+  .body-composition-dashboard .stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-metrics {
+    gap: 10px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-bottom: 20px;
+  }
+
+  .dashboard-club-filter,
+  .dashboard-club-filter label {
+    width: 100%;
+  }
+
+  .dashboard-metric-card {
+    min-height: 108px;
+    padding: 14px;
+  }
+
+  .dashboard-metric-card .stat-icon {
+    height: 34px;
+    width: 34px;
+  }
+
+  .dashboard-metric-card strong {
+    font-size: 22px;
   }
 
   .rankings-section-header {
@@ -2249,18 +2909,52 @@ svg {
   }
 
   .dashboard-main-grid {
+    gap: 20px;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .active-card-panel {
     grid-template-columns: 1fr;
   }
 
-  .champion-header,
-  .champion-stats,
-  .active-card-panel {
-    grid-template-columns: 1fr;
+  .champion-card {
+    padding: 16px;
+  }
+
+  .champion-header {
+    grid-template-columns: auto minmax(0, 1fr);
+    margin-bottom: 14px;
+  }
+
+  .champion-badge {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+
+  .champion-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-bottom: 0;
+  }
+
+  .champion-stats div {
+    min-height: 70px;
+  }
+
+  .dashboard-table-heading {
+    gap: 12px;
+  }
+
+  .dashboard-table-heading .dashboard-section-title {
+    margin-bottom: 0;
   }
 
   .active-card-panel {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .active-card-panel .no-card-status {
+    align-self: flex-start;
   }
 
   .card-progress {
@@ -2356,6 +3050,37 @@ svg {
     padding: 16px 16px 12px;
   }
 
+  .attendance-calendar-heading {
+    align-items: stretch;
+    flex-direction: column;
+    padding: 16px;
+  }
+
+  .attendance-calendar-heading label {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .attendance-calendar-day {
+    min-height: 150px;
+    padding: 6px;
+  }
+
+  .attendance-calendar-weekdays,
+  .attendance-calendar-grid {
+    min-width: 760px;
+  }
+
+  .attendance-calendar-weekdays span {
+    font-size: 10px;
+    padding: 8px 2px;
+  }
+
+  .calendar-day-number {
+    font-size: 12px;
+  }
+
+
   .profile-history-card th,
   .profile-history-card td {
     padding-left: 16px;
@@ -2383,6 +3108,14 @@ svg {
     width: 100%;
   }
 
+  .marathon-control-row {
+    grid-template-columns: 1fr;
+  }
+
+  .marathon-control-row .btn {
+    width: 100%;
+  }
+
   .selected-filter {
     align-items: stretch;
     flex-direction: column;
@@ -2390,5 +3123,45 @@ svg {
 
   .modal-actions .btn {
     width: 100%;
+  }
+}
+
+@media print {
+  @page {
+    margin: 8mm;
+    size: A4 landscape;
+  }
+
+  body * {
+    visibility: hidden !important;
+  }
+
+  #memberReportSheet,
+  #memberReportSheet * {
+    visibility: visible !important;
+  }
+
+  #memberReportSheet {
+    border: 1px solid #176a4b;
+    box-shadow: none;
+    left: 0;
+    padding: 8mm;
+    position: absolute;
+    top: 0;
+    width: 100%;
+  }
+
+  .member-report-table-wrap {
+    overflow: visible;
+  }
+
+  .member-report-table {
+    min-width: 0;
+  }
+
+  .member-report-table th,
+  .member-report-table td {
+    height: 34px;
+    padding: 4px 3px;
   }
 }
