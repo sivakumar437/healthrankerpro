@@ -2427,8 +2427,73 @@ button {
   font-size: 14px;
 }
 
-.payment-total-grid {
+.payment-total-summary {
+  align-items: center;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  display: flex;
+  gap: 24px;
+  justify-content: space-between;
   margin-bottom: 16px;
+  min-height: 132px;
+  padding: 24px 28px;
+  width: 100%;
+}
+
+.payment-total-copy span {
+  color: var(--muted-foreground);
+  display: block;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.payment-total-copy strong {
+  display: block;
+  font-size: 34px;
+  line-height: 1.1;
+  margin-top: 8px;
+}
+
+.payment-total-copy small {
+  color: var(--muted-foreground);
+  display: block;
+  font-size: 13px;
+  margin-top: 8px;
+}
+
+.payment-total-icon {
+  align-items: center;
+  background: var(--emerald-soft);
+  border-radius: 8px;
+  color: var(--primary-strong);
+  display: flex;
+  flex: 0 0 auto;
+  height: 56px;
+  justify-content: center;
+  width: 56px;
+}
+
+.payment-total-icon svg {
+  height: 27px;
+  width: 27px;
+}
+
+.payments-table table {
+  min-width: 1120px;
+}
+
+.payment-amount-cell {
+  white-space: nowrap;
+}
+
+.payment-benefit-cell small {
+  color: var(--muted-foreground);
+  display: block;
+  font-size: 11px;
+  margin-top: 4px;
 }
 
 .pending-payments-table {
@@ -3106,6 +3171,20 @@ svg {
 
   .payment-filter-actions .btn {
     width: 100%;
+  }
+
+  .payment-total-summary {
+    min-height: 116px;
+    padding: 18px;
+  }
+
+  .payment-total-copy strong {
+    font-size: 28px;
+  }
+
+  .payment-total-icon {
+    height: 46px;
+    width: 46px;
   }
 
   .marathon-control-row {

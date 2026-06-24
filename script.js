@@ -122,6 +122,7 @@ const demoProgress = {
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
+    credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
     ...options,
   });
@@ -187,11 +188,9 @@ async function bootstrap() {
         method: "POST",
         body: JSON.stringify({ username: demo, password: demoCredentials[demo] }),
       });
-      sessionStorage.setItem("healthrank-user-id", data.user.id);
       applyData(data);
     } else {
-      const userId = sessionStorage.getItem("healthrank-user-id") || "";
-      applyData(await api(`/api/bootstrap?userId=${encodeURIComponent(userId)}`));
+      applyData(await api("/api/bootstrap"));
     }
     if (state.user?.role === "member") {
       state.profileMemberId = state.user.member_id || state.members[0]?.id || "";
@@ -1353,15 +1352,20 @@ function renderPaymentsPage() {
         </form>
       </article>
       ${state.paymentFilters.showSum ? `
-        <div class="dashboard-metrics grid payment-total-grid">
-          ${dashboardMetric("Total Payments", formatCurrency(state.paymentTotal), `${entries.length} result${entries.length === 1 ? "" : "s"}`, icons.wallet, "bg-emerald")}
-        </div>
+        <article class="payment-total-summary">
+          <div class="payment-total-copy">
+            <span>TOTAL PAYMENTS</span>
+            <strong>${formatCurrency(state.paymentTotal)}</strong>
+            <small>${entries.length} result${entries.length === 1 ? "" : "s"}</small>
+          </div>
+          <div class="payment-total-icon">${icons.wallet}</div>
+        </article>
       ` : ""}
       <div class="table-card payments-table">
         <table>
-          <thead><tr><th>Date</th><th>Member</th><th>Card Type</th><th>Payment Type</th><th>Amount / Benefit</th><th>Recorded By</th><th>Created</th><th>Notes</th></tr></thead>
-          <tbody>${entries.map(paymentRow).join("") || `<tr><td colspan="8">${empty("No payments match the selected filters.")}</td></tr>`}</tbody>
-          ${state.paymentFilters.showSum && entries.length ? `<tfoot><tr><td colspan="4"><strong>Total</strong></td><td><strong>${formatCurrency(state.paymentTotal)}</strong></td><td colspan="3"></td></tr></tfoot>` : ""}
+          <thead><tr><th>Date</th><th>Member</th><th>Card Type</th><th>Payment Type</th><th>Payments</th><th>Benefit / Status</th><th>Recorded By</th><th>Created</th><th>Notes</th></tr></thead>
+          <tbody>${entries.map(paymentRow).join("") || `<tr><td colspan="9">${empty("No payments match the selected filters.")}</td></tr>`}</tbody>
+          ${state.paymentFilters.showSum && entries.length ? `<tfoot><tr><td colspan="4"><strong>Total Payments</strong></td><td><strong>${formatCurrency(state.paymentTotal)}</strong></td><td colspan="4"></td></tr></tfoot>` : ""}
         </table>
       </div>
       <div class="table-card pending-payments-table">
@@ -1417,13 +1421,15 @@ function renderPaymentPurchaseSection() {
 
 function paymentRow(row) {
   const benefitValue = paymentBenefitValue(row);
+  const paymentAmount = Number(row.amount || 0);
   return `
     <tr>
       <td>${escapeHtml(row.payment_date)}</td>
       <td><button class="table-member-link" data-action="select-payment-member" data-member-id="${row.member_id}">${escapeHtml(row.member_name)}</button></td>
       <td>${escapeHtml(row.card_type || "-")}</td>
       <td><span class="mini-badge">${escapeHtml(row.payment_mode)}</span></td>
-      <td>${benefitValue > 0 ? `<s class="benefit-value">${formatCurrency(benefitValue)}</s><small>Club benefit</small>` : `<strong>${formatCurrency(row.amount)}</strong>`}</td>
+      <td class="payment-amount-cell">${paymentAmount > 0 ? `<strong>${formatCurrency(paymentAmount)}</strong>` : "-"}</td>
+      <td class="payment-benefit-cell">${benefitValue > 0 ? `<s class="benefit-value">${formatCurrency(benefitValue)}</s><small>Complimentary</small>` : "-"}</td>
       <td>${escapeHtml(row.created_by)}</td>
       <td>${escapeHtml(row.created_date)}</td>
       <td>${escapeHtml(row.notes || "-")}</td>
@@ -2640,7 +2646,6 @@ async function handleLogin(event) {
   submit.disabled = true;
   try {
     const data = await api("/api/login", { method: "POST", body: JSON.stringify({ username, password }) });
-    sessionStorage.setItem("healthrank-user-id", data.user.id);
     state.route = data.user.role === "member" ? "history" : "dashboard";
     state.error = "";
     applyData(data);
@@ -2715,13 +2720,13 @@ async function fetchMemberReport() {
     state.memberReport = null;
     return;
   }
-  state.memberReport = await api(`/api/member-report?userId=${encodeURIComponent(state.user.id)}&memberId=${encodeURIComponent(state.reportMemberId)}&throughDate=${encodeURIComponent(state.reportThroughDate)}`);
+  state.memberReport = await api(`/api/member-report?memberId=${encodeURIComponent(state.reportMemberId)}&throughDate=${encodeURIComponent(state.reportThroughDate)}`);
 }
 
 async function loadDashboardClubSummary(event) {
   state.dashboardClubFilter = event.target.value;
   try {
-    const data = await api(`/api/dashboard?userId=${encodeURIComponent(state.user.id)}&club=${encodeURIComponent(state.dashboardClubFilter)}`);
+    const data = await api(`/api/dashboard?club=${encodeURIComponent(state.dashboardClubFilter)}`);
     state.dashboardSummary = data.summary;
     state.dashboardClubs = data.clubs || state.dashboardClubs;
     render();
@@ -2735,7 +2740,11 @@ async function handleAction(event) {
   const action = event.currentTarget.dataset.action;
   try {
     if (action === "logout") {
-      sessionStorage.removeItem("healthrank-user-id");
+      try {
+        await api("/api/logout", { method: "POST", body: "{}" });
+      } catch (error) {
+        // Clear local UI even if the server session is already gone.
+      }
       state.user = null;
       state.modal = null;
       render();
@@ -2746,7 +2755,7 @@ async function handleAction(event) {
     if (action === "reset-marathon") {
       const data = await api("/api/marathon/reset", {
         method: "POST",
-        body: JSON.stringify({ userId: state.user.id }),
+        body: JSON.stringify({}),
       });
       applyData(data);
       await loadMarathonData();
@@ -2759,7 +2768,7 @@ async function handleAction(event) {
       return;
     }
     if (action === "download-export") {
-      const url = `/api/export?userId=${encodeURIComponent(state.user.id)}&ts=${Date.now()}`;
+      const url = `/api/export?ts=${Date.now()}`;
       window.location.href = url;
       showToast("Excel backup download started.");
       return;
@@ -2830,7 +2839,7 @@ async function handleAction(event) {
       if (targetUserId === state.user.id) return showToast("You cannot delete your own user account.");
       const data = await api("/api/users/delete", {
         method: "POST",
-        body: JSON.stringify({ userId: state.user.id, targetUserId }),
+        body: JSON.stringify({ targetUserId }),
       });
       applyData(data);
       render();
@@ -2842,7 +2851,7 @@ async function handleAction(event) {
       const active = event.currentTarget.dataset.active === "1";
       const data = await api("/api/members/status", {
         method: "POST",
-        body: JSON.stringify({ userId: state.user.id, memberId, active }),
+        body: JSON.stringify({ memberId, active }),
       });
       applyData(data);
       render();
@@ -2954,7 +2963,6 @@ async function clearPaymentFilters(event) {
 
 async function loadAuditEntries() {
   const params = new URLSearchParams({
-    userId: state.user.id,
     limit: "20",
   });
   if (state.auditFilters.from) params.set("from", state.auditFilters.from);
@@ -2966,9 +2974,7 @@ async function loadAuditEntries() {
 }
 
 async function loadPaymentEntries() {
-  const params = new URLSearchParams({
-    userId: state.user.id,
-  });
+  const params = new URLSearchParams();
   if (state.paymentFilters.from) params.set("from", state.paymentFilters.from);
   if (state.paymentFilters.to) params.set("to", state.paymentFilters.to);
   if (state.paymentFilters.cardType) params.set("cardType", state.paymentFilters.cardType);
@@ -2980,14 +2986,13 @@ async function loadPaymentEntries() {
 }
 
 async function loadMarathonData() {
-  state.marathonData = await api(`/api/marathon?userId=${encodeURIComponent(state.user.id)}`);
+  state.marathonData = await api("/api/marathon");
 }
 
 async function loadProfileAttendance() {
   if (!state.profileMemberId) return;
   const month = state.profileAttendanceMonth || currentLocalMonth();
   const params = new URLSearchParams({
-    userId: state.user.id,
     memberId: state.profileMemberId,
     month,
   });
@@ -2998,14 +3003,14 @@ async function loadProfileAttendance() {
 }
 
 async function postAndApply(path, message) {
-  const data = await api(path, { method: "POST", body: JSON.stringify({ userId: state.user.id }) });
+  const data = await api(path, { method: "POST", body: JSON.stringify({}) });
   applyData(data);
   render();
   showToast(message);
 }
 
 async function refreshData(message = "") {
-  const data = await api(`/api/bootstrap?userId=${encodeURIComponent(state.user.id)}`);
+  const data = await api("/api/bootstrap");
   applyData(data);
   if (state.route === "payments" && ["admin", "supervisor", "super_admin"].includes(state.user.role)) await loadPaymentEntries();
   if (state.route === "audit" && state.user.role === "admin") await loadAuditEntries();
@@ -3030,7 +3035,7 @@ async function saveMeasurement(event) {
   try {
     const data = await api("/api/measurements", {
       method: "POST",
-      body: JSON.stringify({ userId: state.user.id, measurement }),
+      body: JSON.stringify({ measurement }),
     });
     applyData(data);
     state.modal = null;
@@ -3058,7 +3063,7 @@ async function saveMember(event) {
   try {
     const data = await api("/api/members", {
       method: "POST",
-      body: JSON.stringify({ userId: state.user.id, member }),
+      body: JSON.stringify({ member }),
     });
     applyData(data);
     state.route = "members";
@@ -3079,7 +3084,7 @@ async function updateMemberDetails(event) {
   try {
     const data = await api("/api/members/update", {
       method: "POST",
-      body: JSON.stringify({ userId: state.user.id, member }),
+      body: JSON.stringify({ member }),
     });
     applyData(data);
     state.profileMemberId = member.memberId;
@@ -3099,7 +3104,7 @@ async function saveUser(event) {
   try {
     const data = await api("/api/users", {
       method: "POST",
-      body: JSON.stringify({ userId: state.user.id, account }),
+      body: JSON.stringify({ account }),
     });
     applyData(data);
     render();
@@ -3117,7 +3122,7 @@ async function saveAttendance(event) {
   try {
     const data = await api("/api/attendance", {
       method: "POST",
-      body: JSON.stringify({ userId: state.user.id, attendance }),
+      body: JSON.stringify({ attendance }),
     });
     applyData(data);
     state.attendanceEntryDate = attendance.attendanceDate || state.attendanceEntryDate;
@@ -3161,7 +3166,7 @@ async function saveCardPayment(event) {
   try {
     const data = await api("/api/card-payment", {
       method: "POST",
-      body: JSON.stringify({ userId: state.user.id, payment }),
+      body: JSON.stringify({ payment }),
     });
     applyData(data);
     state.paymentPurchaseMemberId = payment.memberId;

@@ -3,8 +3,12 @@ from __future__ import annotations
 import json
 import os
 import re
+import secrets
 import sqlite3
 import tempfile
+import base64
+import hashlib
+import hmac
 from io import BytesIO
 from datetime import datetime, timedelta
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -27,6 +31,54 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
 DB_PATH = Path(os.environ.get("HEALTHRANK_DB", Path(tempfile.gettempdir()) / "healthrank-pro" / "app.db"))
 HOST = os.environ.get("HOST", "0.0.0.0")
 PORT = int(os.environ.get("PORT", "4173"))
+AUTH_SESSION_COOKIE = "healthrank_session"
+AUTH_SESSION_DAYS = 7
+PASSWORD_HASH_PREFIX = "pbkdf2_sha256$"
+PASSWORD_HASH_ITERATIONS = 600_000
+
+
+class AuthenticationError(Exception):
+    pass
+
+
+def is_password_hashed(stored: str) -> bool:
+    return str(stored).startswith(PASSWORD_HASH_PREFIX)
+
+
+def hash_password(plain: str) -> str:
+    password = str(plain)
+    if not password:
+        raise ValueError("Password is required.")
+    salt = secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        salt,
+        PASSWORD_HASH_ITERATIONS,
+    )
+    salt_b64 = base64.urlsafe_b64encode(salt).decode("ascii").rstrip("=")
+    hash_b64 = base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+    return f"{PASSWORD_HASH_PREFIX}{PASSWORD_HASH_ITERATIONS}${salt_b64}${hash_b64}"
+
+
+def verify_password(plain: str, stored: str) -> bool:
+    password = str(plain)
+    stored_value = str(stored or "")
+    if not password or not stored_value:
+        return False
+    if not is_password_hashed(stored_value):
+        return hmac.compare_digest(password, stored_value)
+    try:
+        scheme, iterations_text, salt_b64, hash_b64 = stored_value.split("$", 3)
+        if scheme != PASSWORD_HASH_PREFIX.rstrip("$"):
+            return False
+        iterations = int(iterations_text)
+        salt = base64.urlsafe_b64decode(salt_b64 + "=" * (-len(salt_b64) % 4))
+        expected = base64.urlsafe_b64decode(hash_b64 + "=" * (-len(hash_b64) % 4))
+        actual = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
+        return hmac.compare_digest(actual, expected)
+    except (ValueError, TypeError):
+        return False
 
 SCORING_FORMULA = {
     "items": [
@@ -318,6 +370,14 @@ def schema_sql(dialect: str) -> str:
               created_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS auth_sessions (
+              token TEXT PRIMARY KEY,
+              user_id TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              expires_at TEXT NOT NULL,
+              FOREIGN KEY(user_id) REFERENCES users(id)
+            );
+
             CREATE TABLE IF NOT EXISTS membership_cards (
               id {auto_pk},
               member_id INTEGER NOT NULL,
@@ -390,6 +450,7 @@ def init_db() -> None:
         migrate_schema(db)
         create_indexes(db)
         seed(db)
+        backfill_password_hashes(db)
         if seed_demo_data_enabled():
             seed_cards(db)
         reconcile_all_card_usage(db)
@@ -592,6 +653,8 @@ def create_indexes(db: DbConnection) -> None:
         CREATE INDEX IF NOT EXISTS idx_payments_date ON payments(payment_date);
         CREATE INDEX IF NOT EXISTS idx_payments_creator ON payments(created_by_user_id);
         CREATE INDEX IF NOT EXISTS idx_payments_benefit ON payments(is_benefit);
+        CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id);
+        CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires ON auth_sessions(expires_at);
         """
     )
 
@@ -604,6 +667,14 @@ def backfill_member_codes(db: DbConnection) -> None:
     rows = db.execute("SELECT id FROM members WHERE member_code IS NULL OR member_code = ''").fetchall()
     for row in rows:
         db.execute("UPDATE members SET member_code = ? WHERE id = ?", (generate_member_code(int(row["id"])), row["id"]))
+
+
+def backfill_password_hashes(db: DbConnection) -> None:
+    rows = db.execute("SELECT id, password FROM users").fetchall()
+    for row in rows:
+        stored = str(row["password"] or "")
+        if stored and not is_password_hashed(stored):
+            db.execute("UPDATE users SET password = ? WHERE id = ?", (hash_password(stored), row["id"]))
 
 
 def seed(db: DbConnection) -> None:
@@ -689,6 +760,49 @@ def get_user(db: sqlite3.Connection, user_id: str | None) -> dict[str, Any] | No
             (user_id,),
         ).fetchone()
     )
+
+
+def create_auth_session(db: DbConnection, user_id: str) -> str:
+    token = secrets.token_urlsafe(32)
+    created_at = datetime.now()
+    expires_at = created_at + timedelta(days=AUTH_SESSION_DAYS)
+    db.execute(
+        "INSERT INTO auth_sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
+        (token, user_id, created_at.isoformat(), expires_at.isoformat()),
+    )
+    return token
+
+
+def delete_auth_session(db: DbConnection, token: str) -> None:
+    db.execute("DELETE FROM auth_sessions WHERE token = ?", (token,))
+
+
+def user_id_from_auth_session(db: DbConnection, token: str | None) -> str | None:
+    if not token:
+        return None
+    row = db.execute(
+        "SELECT user_id, expires_at FROM auth_sessions WHERE token = ?",
+        (token,),
+    ).fetchone()
+    if not row:
+        return None
+    try:
+        expires_at = datetime.fromisoformat(str(row["expires_at"]))
+    except ValueError:
+        delete_auth_session(db, token)
+        return None
+    if datetime.now() > expires_at:
+        delete_auth_session(db, token)
+        return None
+    return str(row["user_id"])
+
+
+def resolve_authenticated_user_id(token: str | None, *, required: bool = True) -> str | None:
+    with connect() as db:
+        user_id = user_id_from_auth_session(db, token)
+    if required and not user_id:
+        raise AuthenticationError("You must sign in to continue.")
+    return user_id
 
 
 def dashboard_clubs(db: DbConnection, user: dict[str, Any]) -> list[str]:
@@ -1463,7 +1577,11 @@ def export_backup(user_id: str | None) -> tuple[bytes, str]:
         sheets: list[tuple[str, list[str], list[dict[str, Any]]]] = []
         for table in EXPORT_TABLES:
             headers = db.table_headers(table)
+            if table == "users":
+                headers = [header for header in headers if header != "password"]
             rows = rows_to_list(db.execute(f"SELECT * FROM {table}").fetchall())
+            if table == "users":
+                rows = [{key: value for key, value in row.items() if key != "password"} for row in rows]
             sheets.append((table[:31], headers, rows))
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     return build_xlsx_workbook(sheets), f"healthrank-backup-{timestamp}.xlsx"
@@ -1807,7 +1925,7 @@ def save_user(payload: dict[str, Any]) -> dict[str, Any]:
         stamp = now_label()
         db.execute(
             "INSERT INTO users (id, username, password, name, role, member_id, nutrition_club) VALUES (?, ?, ?, ?, ?, NULL, ?)",
-            (user_id, username, password, name, role, nutrition_club),
+            (user_id, username, hash_password(password), name, role, nutrition_club),
         )
         db.execute("INSERT INTO audit (action, actor, created_at) VALUES (?, ?, ?)", (f"User Created - {username}", actor["name"], stamp))
     return bootstrap(payload.get("userId"))
@@ -2426,11 +2544,60 @@ class Handler(SimpleHTTPRequestHandler):
     def log_message(self, format: str, *args: Any) -> None:
         return
 
-    def send_json(self, data: dict[str, Any], status: int = 200) -> None:
+    def session_token(self) -> str | None:
+        cookie_header = self.headers.get("Cookie", "")
+        if not cookie_header:
+            return None
+        prefix = f"{AUTH_SESSION_COOKIE}="
+        for part in cookie_header.split(";"):
+            part = part.strip()
+            if part.startswith(prefix):
+                return part[len(prefix) :]
+        return None
+
+    def session_cookie_value(self, token: str) -> str:
+        parts = [
+            f"{AUTH_SESSION_COOKIE}={token}",
+            "Path=/",
+            "HttpOnly",
+            "SameSite=Lax",
+            f"Max-Age={AUTH_SESSION_DAYS * 86400}",
+        ]
+        if os.environ.get("HTTPS", "").strip().lower() in {"1", "true", "yes", "on"}:
+            parts.append("Secure")
+        return "; ".join(parts)
+
+    def clear_session_cookie_value(self) -> str:
+        parts = [
+            f"{AUTH_SESSION_COOKIE}=",
+            "Path=/",
+            "HttpOnly",
+            "SameSite=Lax",
+            "Max-Age=0",
+        ]
+        if os.environ.get("HTTPS", "").strip().lower() in {"1", "true", "yes", "on"}:
+            parts.append("Secure")
+        return "; ".join(parts)
+
+    def authenticated_user_id(self, *, required: bool = True) -> str | None:
+        return resolve_authenticated_user_id(self.session_token(), required=required)
+
+    def send_json(
+        self,
+        data: dict[str, Any],
+        status: int = 200,
+        *,
+        set_cookie: str | None = None,
+        clear_session: bool = False,
+    ) -> None:
         body = json.dumps(data).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        if set_cookie:
+            self.send_header("Set-Cookie", set_cookie)
+        if clear_session:
+            self.send_header("Set-Cookie", self.clear_session_cookie_value())
         self.end_headers()
         self.wfile.write(body)
 
@@ -2452,36 +2619,41 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             parsed = urlparse(self.path)
             if parsed.path == "/api/bootstrap":
-                params = parse_qs(parsed.query)
-                self.send_json(bootstrap(params.get("userId", [""])[0] or None))
+                user_id = self.authenticated_user_id(required=False)
+                self.send_json(bootstrap(user_id))
                 return
             if parsed.path == "/api/dashboard":
                 params = parse_qs(parsed.query)
-                self.send_json(dashboard_data(params.get("userId", [""])[0] or None, params))
+                user_id = self.authenticated_user_id()
+                self.send_json(dashboard_data(user_id, params))
                 return
             if parsed.path == "/api/member-report":
                 params = parse_qs(parsed.query)
-                self.send_json(member_report_data(params.get("userId", [""])[0] or None, params))
+                user_id = self.authenticated_user_id()
+                self.send_json(member_report_data(user_id, params))
                 return
             if parsed.path == "/api/audit":
                 params = parse_qs(parsed.query)
-                self.send_json(audit_entries(params.get("userId", [""])[0] or None, params))
+                user_id = self.authenticated_user_id()
+                self.send_json(audit_entries(user_id, params))
                 return
             if parsed.path == "/api/payments":
                 params = parse_qs(parsed.query)
-                self.send_json(payment_entries(params.get("userId", [""])[0] or None, params))
+                user_id = self.authenticated_user_id()
+                self.send_json(payment_entries(user_id, params))
                 return
             if parsed.path == "/api/member-attendance":
                 params = parse_qs(parsed.query)
-                self.send_json(member_attendance_entries(params.get("userId", [""])[0] or None, params))
+                user_id = self.authenticated_user_id()
+                self.send_json(member_attendance_entries(user_id, params))
                 return
             if parsed.path == "/api/marathon":
-                params = parse_qs(parsed.query)
-                self.send_json(marathon_data(params.get("userId", [""])[0] or None))
+                user_id = self.authenticated_user_id()
+                self.send_json(marathon_data(user_id))
                 return
             if parsed.path == "/api/export":
-                params = parse_qs(parsed.query)
-                body, filename = export_backup(params.get("userId", [""])[0] or None)
+                user_id = self.authenticated_user_id()
+                body, filename = export_backup(user_id)
                 self.send_file(
                     body,
                     filename,
@@ -2492,6 +2664,8 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_json({"ok": True, "database": database_dialect(), "database_url": "DATABASE_URL" if DATABASE_URL else str(DB_PATH)})
                 return
             super().do_GET()
+        except AuthenticationError as exc:
+            self.send_json({"error": str(exc)}, 401)
         except PermissionError as exc:
             self.send_json({"error": str(exc)}, 403)
         except Exception as exc:
@@ -2506,14 +2680,31 @@ class Handler(SimpleHTTPRequestHandler):
                 password = payload.get("password", "")
                 with connect() as db:
                     user = db.execute(
-                        "SELECT id, username, name, role, member_id FROM users WHERE username = ? AND password = ?",
-                        (username, password),
+                        "SELECT id, username, name, role, member_id, password FROM users WHERE username = ?",
+                        (username,),
                     ).fetchone()
-                if not user:
-                    self.send_json({"error": "Invalid credentials."}, 401)
-                    return
-                self.send_json(bootstrap(user["id"]))
+                    if not user or not verify_password(password, user["password"]):
+                        self.send_json({"error": "Invalid credentials."}, 401)
+                        return
+                    if not is_password_hashed(user["password"]):
+                        db.execute(
+                            "UPDATE users SET password = ? WHERE id = ?",
+                            (hash_password(password), user["id"]),
+                        )
+                    token = create_auth_session(db, user["id"])
+                self.send_json(bootstrap(user["id"]), set_cookie=self.session_cookie_value(token))
                 return
+            if parsed.path == "/api/logout":
+                token = self.session_token()
+                with connect() as db:
+                    if token:
+                        delete_auth_session(db, token)
+                self.send_json({"ok": True}, clear_session=True)
+                return
+
+            user_id = self.authenticated_user_id()
+            payload["userId"] = user_id
+
             if parsed.path == "/api/session/start":
                 self.send_json(session_action(payload, "ACTIVE", "Weekly Measurement Session is now open. You may begin recording member measurements.", "Session Created"))
                 return
@@ -2551,6 +2742,8 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_json(save_attendance(payload))
                 return
             self.send_json({"error": "Route not found."}, 404)
+        except AuthenticationError as exc:
+            self.send_json({"error": str(exc)}, 401)
         except PermissionError as exc:
             self.send_json({"error": str(exc)}, 403)
         except Exception as exc:
