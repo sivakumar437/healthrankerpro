@@ -42,9 +42,8 @@ export function renderViewSwitcher() {
   const isClub = state.viewMode === "club";
   return `
     <div class="view-switcher-simple">
-      <span class="${!isClub ? "vs-active" : "vs-inactive"}" data-action="switch-view" data-view="personal" role="button" tabindex="0">Personal</span>
-      <span class="vs-divider">|</span>
-      <span class="${isClub ? "vs-active" : "vs-inactive"}" data-action="switch-view" data-view="club" role="button" tabindex="0">Club</span>
+      <button class="${!isClub ? "vs-btn vs-btn-active" : "vs-btn vs-btn-inactive"}" type="button" data-action="switch-view" data-view="personal">Personal</button>
+      <button class="${isClub ? "vs-btn vs-btn-active" : "vs-btn vs-btn-inactive"}" type="button" data-action="switch-view" data-view="club">Club</button>
     </div>
   `;
 }

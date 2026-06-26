@@ -426,28 +426,38 @@ button {
 .view-switcher-simple {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  font-size: 13px;
+  gap: 2px;
+  background: var(--muted);
+  border-radius: 10px;
+  padding: 3px;
 }
 
-.view-switcher-simple .vs-active {
-  color: var(--foreground);
-  font-weight: 600;
-  cursor: default;
-}
-
-.view-switcher-simple .vs-inactive {
-  color: var(--muted-foreground);
+.vs-btn {
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 5px 14px;
   cursor: pointer;
+  transition: all 0.18s ease;
+  letter-spacing: 0.01em;
 }
 
-.view-switcher-simple .vs-inactive:hover {
-  color: var(--accent);
+.vs-btn-active {
+  background: #fff;
+  color: var(--primary);
+  font-weight: 700;
+  box-shadow: 0 1px 4px rgba(21,154,146,0.13), 0 1px 2px rgba(0,0,0,0.06);
 }
 
-.view-switcher-simple .vs-divider {
-  color: var(--border);
-  user-select: none;
+.vs-btn-inactive {
+  color: var(--muted-foreground);
+}
+
+.vs-btn-inactive:hover {
+  color: var(--foreground);
+  background: rgba(255,255,255,0.5);
 }
 
 .segmented-control button {
