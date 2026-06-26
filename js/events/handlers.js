@@ -103,7 +103,7 @@ export async function handleAction(action, target) {
     }
 
     case "select-attendance-member":
-      state.selectedAttendanceMemberId = target.dataset.memberId;
+      state.attendanceMemberId = target.dataset.memberId;
       state.attendanceSearch = "";
       render();
       break;
@@ -375,6 +375,26 @@ export function bindEvents() {
     if (el.name === "cardType") {
       const memberId = el.closest("form")?.querySelector("[name='memberId']")?.value;
       if (memberId) updateCardPaymentDefaults(memberId, el.value);
+    }
+    if (el.id === "attendanceViewDate") {
+      state.attendanceViewDate = el.value;
+      render();
+    }
+    if (el.id === "attendanceEntryDate") {
+      state.attendanceEntryDate = el.value;
+      state.attendanceMemberId = "";
+      const hidden = document.querySelector("#attendanceFormDate");
+      if (hidden) hidden.value = state.attendanceEntryDate;
+      render();
+    }
+    if (el.id === "attendanceEntryType") {
+      state.attendanceEntryType = el.value;
+      const hidden = document.querySelector("#attendanceFormType");
+      if (hidden) hidden.value = state.attendanceEntryType;
+    }
+    if (el.id === "attendanceConfirmUpdate") {
+      const field = document.querySelector(".guest-name-field");
+      if (field) field.classList.toggle("hidden", el.value !== "1");
     }
     if (el.id === "paymentShowSum") {
       const form = document.querySelector("#paymentFilterForm");

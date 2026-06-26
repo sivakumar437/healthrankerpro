@@ -74,7 +74,7 @@ export async function saveAttendance(form) {
     await api("/api/save-attendance", { method: "POST", body: JSON.stringify(data) });
     showToast("Attendance recorded.");
     state.attendanceSearch = "";
-    state.selectedAttendanceMemberId = null;
+    state.attendanceMemberId = null;
     await refreshData();
   } catch (err) {
     showToast(err.message || "Failed to record attendance.");
