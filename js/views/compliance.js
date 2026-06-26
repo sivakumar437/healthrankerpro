@@ -1,43 +1,27 @@
 import { state, icons } from "../state.js";
-import { escapeHtml, formatDateOnly, measurementsFor } from "../helpers.js";
-import { restricted, empty, memberCard } from "./components.js";
+import { escapeHtml, formatDateOnly, measurementsFor, canAddMeasurements } from "../helpers.js";
+import { restricted, empty, memberCard, stat, renderSessionControl } from "./components.js";
 
 export function renderCompliance() {
   if (state.user.role !== "admin" && state.user.role !== "super_admin") return restricted("Only admins can access the compliance view.");
-  const members = state.members.filter((m) => Number(m.active ?? 1) === 1);
-  const compliant = members.filter((m) => m.measured);
-  const pending = members.filter((m) => !m.measured);
+  const pending = state.members.filter((m) => !m.measured);
+  const marathonPending = pending.filter((m) => Number(m.marathon_active || 0) === 1);
+  const measured = state.members.length - pending.length;
+  const canAdd = canAddMeasurements();
   return `
-    <div class="compliance-summary grid">
-      <div class="stat-card card"><p>Total Active</p><strong>${members.length}</strong></div>
-      <div class="stat-card card"><p>Measured This Week</p><strong class="text-emerald">${compliant.length}</strong></div>
-      <div class="stat-card card"><p>Pending</p><strong class="text-danger">${pending.length}</strong></div>
-      <div class="stat-card card"><p>Compliance Rate</p><strong>${members.length ? Math.round((compliant.length / members.length) * 100) : 0}%</strong></div>
+    ${renderSessionControl()}
+    <div class="stats-grid grid">
+      ${stat("Session", state.session?.status || "-", state.week || "", state.session?.status === "ACTIVE" ? icons.check : icons.lock, state.session?.status === "ACTIVE" ? "bg-emerald" : "bg-danger")}
+      ${stat("Measured", measured, "this week", icons.check, "bg-emerald")}
+      ${stat("Pending", pending.length, "not yet measured", icons.clock, "bg-amber")}
+      ${stat("Marathon Pending", marathonPending.length, "high priority", icons.trophy, "bg-violet")}
     </div>
-    <div class="two-col grid">
-      <article class="card">
-        <div class="section-heading"><div><h2>Measured</h2><p>${compliant.length} members</p></div><span class="badge badge-emerald">Done</span></div>
-        <div class="member-list mini">${compliant.length ? compliant.map(complianceMemberRow).join("") : empty("None yet.")}</div>
-      </article>
-      <article class="card">
-        <div class="section-heading"><div><h2>Pending Measurement</h2><p>${pending.length} members</p></div><span class="badge badge-red">Pending</span></div>
-        <div class="member-list mini">${pending.length ? pending.map(complianceMemberRow).join("") : empty("All measured.")}</div>
-      </article>
-    </div>
-  `;
-}
-
-export function complianceMemberRow(m) {
-  const measurements = measurementsFor(m.id);
-  const lastWeek = measurements.length ? measurements.sort((a, b) => b.week_number - a.week_number)[0].measurement_date : "Never";
-  return `
-    <div class="compliance-member-row">
-      <div class="avatar small">${m.name[0]}</div>
-      <div>
-        <strong>${escapeHtml(m.name)}</strong>
-        <small>Last: ${formatDateOnly(lastWeek)}</small>
-      </div>
-      <button class="btn btn-outline mini" data-action="view-profile" data-member-id="${m.id}">Profile</button>
+    ${canAdd
+      ? `<div class="toolbar"><button class="btn btn-primary" data-action="add-measurement">${icons.plus} Add Measurement</button></div>`
+      : `<div class="notice-inline">Measurement session has not been opened by the Admin for this week.</div>`}
+    <div class="card">
+      <div class="section-heading"><div><h2>Members Yet to Be Measured</h2><p>Prioritized by marathon status and score movement</p></div></div>
+      <div class="member-list">${pending.map(memberCard).join("") || empty("All visible members have been measured this week.")}</div>
     </div>
   `;
 }

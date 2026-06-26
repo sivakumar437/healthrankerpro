@@ -35,8 +35,15 @@ export function renderProfileHeader(member, progress, card) {
         <div class="badges">
           ${goalBadge(member.goal)}
           ${card ? `<span class="badge badge-emerald">${escapeHtml(card.card_type)} Card</span>` : `<span class="badge badge-red">No Active Card</span>`}
+          ${Number(member.marathon_active || 0) === 1 ? `<span class="badge badge-amber">${icons.trophy} Marathon</span>` : ""}
           ${Number(member.active ?? 1) === 0 ? `<span class="badge badge-muted">Hidden</span>` : ""}
         </div>
+        ${state.user.role === "admin" ? `
+          <div class="profile-actions">
+            <button class="btn btn-outline mini" data-action="toggle-profile-edit">${state.profileEditOpen ? "Close Edit" : "Edit Details"}</button>
+            <button class="btn btn-outline mini" data-action="set-member-status" data-member-id="${member.id}" data-active="${Number(member.active ?? 1) === 1 ? "0" : "1"}">${Number(member.active ?? 1) === 1 ? "Hide Member" : "Make Active"}</button>
+          </div>
+        ` : ""}
       </div>
       <div class="profile-score-card">
         <strong>${progress.score}</strong>

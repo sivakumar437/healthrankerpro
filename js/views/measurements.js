@@ -52,15 +52,30 @@ export function renderMeasurementEntry() {
 }
 
 export function renderMeasurementTable() {
-  const rows = [...state.measurements].sort((a, b) => String(b.measurement_date).localeCompare(String(a.measurement_date)));
+  const query = (state.query || "").toLowerCase();
+  const placeholder = state.user?.role === "admin"
+    ? "Search measurements by member name, mobile, or ID"
+    : "Search measurements by member name or ID";
+  const rows = state.measurements.filter((m) => {
+    if (!query) return true;
+    const member = state.members.find((item) => Number(item.id) === Number(m.member_id));
+    const searchable = state.user?.role === "admin"
+      ? [m.member_name, String(m.member_id), m.week_number, member?.phone]
+      : [m.member_name, String(m.member_id), m.week_number];
+    return searchable.some((v) => String(v || "").toLowerCase().includes(query));
+  }).sort((a, b) => String(b.measurement_date).localeCompare(String(a.measurement_date)));
   return `
+    <div class="toolbar">
+      <input class="search-input" id="measurementSearch" value="${escapeHtml(state.query || "")}" placeholder="${placeholder}" />
+    </div>
+    <p class="toolbar-note">${rows.length} visible entries from full measurement history</p>
     <article class="card">
       <div class="section-heading"><div><h2>Weekly Measurements</h2><p>${rows.length} records</p></div>${icons.activity}</div>
       ${rows.length ? `
         <div class="table-responsive">
           <table>
-            <thead><tr><th>Member</th><th>Week</th><th>Weight</th><th>BF%</th><th>VF</th><th>BMR</th><th>BMI</th><th>BMA</th><th>SBF%</th><th>Muscle</th><th>Supervisor</th><th>Date</th><th></th></tr></thead>
-            <tbody>${rows.map(measurementRow).join("")}</tbody>
+            <thead><tr><th>Member</th><th>Week</th><th>Weight</th><th>Body Fat</th><th>Visceral Fat</th><th>BMR</th><th>BMI</th><th>BMA</th><th>Subcutaneous Fat</th><th>Muscle Mass</th><th>Supervisor</th><th>Date</th><th></th></tr></thead>
+            <tbody>${rows.map(measurementRow).join("") || `<tr><td colspan="13">${empty("No measurements match your search.")}</td></tr>`}</tbody>
           </table>
         </div>
       ` : empty("No measurements recorded yet.")}

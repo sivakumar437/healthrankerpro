@@ -42,6 +42,11 @@ export async function handleAction(action, target) {
       window.print();
       break;
 
+    case "toggle-scoring-formula":
+      state.scoringFormulaOpen = !state.scoringFormulaOpen;
+      render();
+      break;
+
     case "logout":
       await api("/api/logout", { method: "POST" });
       window.location.reload();
@@ -271,6 +276,7 @@ export function bindEvents() {
     }
     if (el.id === "measurementDate") updateMeasurementWeekFromDate(el.value);
     if (el.id === "showHiddenMembers") { state.showHiddenMembers = el.checked; render(); }
+    if (el.id === "rankingsMarathonOnly") { state.rankingsMarathonOnly = el.checked; render(); }
     if (el.id === "dashboardClubFilter") loadDashboardClubSummary(el.value);
   });
 

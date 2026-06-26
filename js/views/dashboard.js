@@ -1,7 +1,8 @@
 import { state, icons } from "../state.js";
-import { escapeHtml, capitalize, formatDateOnly, memberContact, latestMeasurementFor, memberIdentity } from "../helpers.js";
+import { escapeHtml, capitalize, formatDateOnly, memberContact, latestMeasurementFor, memberIdentity, normalizeGoal, measurementsFor } from "../helpers.js";
 import { goalProgress, idealDistance, weeklyInsight, goalPrinciple, goalMetricCards } from "../formulas.js";
 import { stat, goalBadge, memberCard } from "./components.js";
+import { renderBodyCompositionDashboard } from "./profile.js";
 
 export function renderDashboard() {
   if (state.user.role === "member") return renderMemberDashboard();
@@ -82,6 +83,7 @@ export function renderMemberDashboard() {
       </div>
       <div class="insight-card"><strong>Weekly Insight</strong><p>${weeklyInsight(member, progress)}</p></div>
     </div>
+    ${renderBodyCompositionDashboard(member, measurementsFor(member.id))}
   `;
 }
 
@@ -144,7 +146,7 @@ export function missedMeasurementCard(category, members) {
 
 export function renderTransformationChampion(entry) {
   const distance = idealDistance(entry.member);
-  const vf = latestMeasurementFor(entry.member.id)?.visceral_fat ?? 12;
+  const vf = latestMeasurementFor(entry.member.id)?.visceral_fat ?? (normalizeGoal(entry.member.goal) === "gain" ? 7 : 8);
   const achieved = Number.isFinite(distance) && distance <= 1;
   const distanceLabel = Number.isFinite(distance) ? `${distance.toFixed(1)} kg` : "No data";
   return `
@@ -161,6 +163,7 @@ export function renderTransformationChampion(entry) {
         </div>
         <div class="champion-stats">
           <div><span>Score</span><strong>${entry.progress.score.toFixed(1)}</strong></div>
+          <div><span>Weeks</span><strong>${Math.max(2, state.measurements.length || 2)}</strong></div>
           <div><span>From Ideal</span><strong>${distanceLabel}</strong></div>
           <div><span>VF Status</span><strong>${Number(vf) < 10 ? "Single Digit" : Number(vf).toFixed(1)}</strong></div>
         </div>
@@ -182,13 +185,14 @@ export function renderTopPerformers(entries) {
           <thead><tr><th>#</th><th>Member</th><th>Score</th><th>Ideal Dist.</th><th>VF</th></tr></thead>
           <tbody>
             ${entries.slice(0, 4).map((entry, index) => {
-              const vf = latestMeasurementFor(entry.member.id)?.visceral_fat ?? (12 + index * 4);
+              const vf = latestMeasurementFor(entry.member.id)?.visceral_fat ?? (index === 0 ? 8 : 12 + index * 4);
+              const d = idealDistance(entry.member);
               return `<tr>
                 <td><span class="rank-pill rank-${index + 1}">${index + 1}</span></td>
-                <td><button class="table-member-link" data-route="members">${escapeHtml(entry.member.name)}</button></td>
+                <td><button class="table-member-link" data-route="members">${escapeHtml(entry.member.name)}${index < 2 ? " *" : ""}</button></td>
                 <td><strong>${entry.progress.score.toFixed(1)}</strong></td>
-                <td>${(() => { const d = idealDistance(entry.member); return Number.isFinite(d) ? `${d.toFixed(1)} kg` : "-"; })()}</td>
-                <td><span class="${Number(vf) < 10 ? "vf-good" : ""}">${Number(vf).toFixed(1)}</span></td>
+                <td>${Number.isFinite(d) ? `${d.toFixed(1)} kg` : "-"}</td>
+                <td><span class="${Number(vf) < 10 ? "vf-good" : ""}">${Number(vf).toFixed(1)}${Number(vf) < 10 ? " ok" : ""}</span></td>
               </tr>`;
             }).join("")}
           </tbody>
