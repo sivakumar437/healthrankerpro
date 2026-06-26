@@ -284,6 +284,8 @@ export function bindEvents() {
     else if (form.id === "cardPaymentForm") await saveCardPayment(form);
     else if (form.id === "leadForm") await saveLead(form);
     else if (form.id === "addUserForm") await saveUser(form);
+    else if (form.id === "auditFilterForm") applyAuditFilters(e);
+    else if (form.id === "paymentFilterForm") applyPaymentFilters(e);
     else if (form.id === "importForm") await handleImport(form);
     else if (form.id === "reportForm") {
       const select = document.getElementById("reportMemberId");

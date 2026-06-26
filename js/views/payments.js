@@ -4,54 +4,66 @@ import { restricted, empty } from "./components.js";
 
 export function renderPayments() {
   if (!["admin", "supervisor", "coach", "nc_organiser", "super_admin"].includes(state.user.role)) return restricted("You do not have permission to view payments.");
+  const f = state.paymentFilters || {};
+  const selectedMember = state.members.find((m) => String(m.id) === String(f.memberId));
   const filtered = filteredPayments();
-  const total = filtered.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+  const cardTypes = [...new Set(state.members.flatMap((m) => m.card_type ? [m.card_type] : []))].sort();
   return `
-    ${renderPaymentFilters()}
-    <div class="payment-summary">
-      <span>${filtered.length} payments</span>
-      <strong>Total: ${formatCurrency(total)}</strong>
-    </div>
-    <article class="card">
-      <div class="section-heading"><div><h2>Payment History</h2><p>Card purchases and renewal history</p></div>${icons.activity}</div>
-      ${filtered.length ? `
-        <div class="table-responsive">
-          <table>
-            <thead><tr><th>Member</th><th>Card Type</th><th>Amount</th><th>Mode</th><th>Benefit</th><th>Date</th><th>Notes</th></tr></thead>
-            <tbody>${filtered.map(paymentRow).join("")}</tbody>
-          </table>
+    ${renderPaymentFilters(f, selectedMember, cardTypes)}
+    ${f.showSum ? `
+      <article class="payment-total-summary">
+        <div class="payment-total-copy">
+          <span>TOTAL PAYMENTS</span>
+          <strong>${formatCurrency(filtered.reduce((s, p) => s + Number(p.amount || 0), 0))}</strong>
+          <small>${filtered.length} result${filtered.length === 1 ? "" : "s"}</small>
         </div>
-      ` : empty("No payments match the current filters.")}
-    </article>
+        <div class="payment-total-icon">${icons.wallet}</div>
+      </article>
+    ` : ""}
+    <div class="table-card payments-table">
+      <table>
+        <thead><tr><th>Date</th><th>Member</th><th>Card Type</th><th>Payment Type</th><th>Payments</th><th>Benefit / Status</th><th>Recorded By</th><th>Notes</th></tr></thead>
+        <tbody>${filtered.map(paymentRow).join("") || `<tr><td colspan="8">${empty("No payments match the selected filters.")}</td></tr>`}</tbody>
+        ${f.showSum && filtered.length ? `<tfoot><tr><td colspan="4"><strong>Total Payments</strong></td><td><strong>${formatCurrency(filtered.reduce((s, p) => s + Number(p.amount || 0), 0))}</strong></td><td colspan="3"></td></tr></tfoot>` : ""}
+      </table>
+    </div>
   `;
 }
 
-export function renderPaymentFilters() {
-  const f = state.paymentFilters || {};
+export function renderPaymentFilters(f = {}, selectedMember, cardTypes = []) {
+  f = f || state.paymentFilters || {};
+  if (!cardTypes.length) cardTypes = [...new Set(state.members.flatMap((m) => m.card_type ? [m.card_type] : []))].sort();
   return `
-    <article class="card filter-card">
-      <div class="section-heading"><div><h2>Filter Payments</h2></div></div>
-      <div class="filter-row">
-        <label><span class="label">Member</span><input id="paymentFilterMember" value="${escapeHtml(f.member || "")}" placeholder="Search by name..." /></label>
-        <label><span class="label">Card Type</span><select id="paymentFilterCardType">
-          <option value="">All types</option>
-          <option value="Weight Loss" ${f.cardType === "Weight Loss" ? "selected" : ""}>Weight Loss</option>
-          <option value="Weight Gain" ${f.cardType === "Weight Gain" ? "selected" : ""}>Weight Gain</option>
-          <option value="Body Composition" ${f.cardType === "Body Composition" ? "selected" : ""}>Body Composition</option>
-        </select></label>
-        <label><span class="label">Payment Mode</span><select id="paymentFilterMode">
-          <option value="">All modes</option>
-          <option value="Cash" ${f.mode === "Cash" ? "selected" : ""}>Cash</option>
-          <option value="UPI" ${f.mode === "UPI" ? "selected" : ""}>UPI</option>
-          <option value="Card" ${f.mode === "Card" ? "selected" : ""}>Card</option>
-        </select></label>
-        <label><span class="label">From Date</span><input id="paymentFilterFrom" type="date" value="${f.from || ""}" /></label>
-        <label><span class="label">To Date</span><input id="paymentFilterTo" type="date" value="${f.to || ""}" /></label>
-        <div class="filter-actions">
-          <button class="btn btn-primary" data-action="apply-payment-filters">${icons.search} Apply</button>
-          <button class="btn btn-outline" data-action="clear-payment-filters">Clear</button>
-        </div>
+    <article class="card audit-filter-card">
+      <div class="section-heading">
+        <div><h2>Payments</h2><p>Latest 20 payments are shown by default. Filter by date, card type, or member.</p></div>
+        ${icons.wallet}
       </div>
+      ${selectedMember ? `
+        <div class="selected-filter">
+          <span>Showing payments for <strong>${escapeHtml(selectedMember.name)}</strong></span>
+          <button class="btn btn-outline mini" data-action="clear-payment-member" type="button">Show All Members</button>
+        </div>
+      ` : ""}
+      <form id="paymentFilterForm" class="form-grid">
+        <label><span class="label">From Date</span><input name="from" type="date" value="${escapeHtml(f.from || "")}" /></label>
+        <label><span class="label">To Date</span><input name="to" type="date" value="${escapeHtml(f.to || "")}" /></label>
+        <label><span class="label">Card Type</span>
+          <select name="cardType">
+            <option value="">All card types</option>
+            ${cardTypes.map((type) => `<option value="${escapeHtml(type)}" ${f.cardType === type ? "selected" : ""}>${escapeHtml(type)}</option>`).join("")}
+          </select>
+        </label>
+        <div class="payment-filter-actions">
+          <label class="toggle-field">
+            <span class="label">Show Sum</span>
+            <input id="paymentShowSum" name="showSum" type="checkbox" ${f.showSum ? "checked" : ""} />
+            <span class="toggle-switch" aria-hidden="true"></span>
+          </label>
+          <button class="btn btn-outline" type="button" data-action="clear-payment-filters">Clear</button>
+          <button class="btn btn-primary" type="submit">${icons.check} Apply Filters</button>
+        </div>
+      </form>
     </article>
   `;
 }
@@ -59,12 +71,13 @@ export function renderPaymentFilters() {
 export function paymentRow(p) {
   return `
     <tr>
+      <td>${formatDateOnly(p.payment_date)}</td>
       <td><strong>${escapeHtml(p.member_name)}</strong></td>
       <td>${escapeHtml(p.card_type)}</td>
-      <td><strong>${formatCurrency(p.amount)}</strong></td>
       <td>${escapeHtml(p.payment_mode || "-")}</td>
+      <td><strong>${formatCurrency(p.amount)}</strong></td>
       <td>${escapeHtml(p.benefit_value || "-")}</td>
-      <td>${formatDateOnly(p.payment_date)}</td>
+      <td>${escapeHtml(p.recorded_by || "-")}</td>
       <td>${escapeHtml(p.notes || "")}</td>
     </tr>
   `;

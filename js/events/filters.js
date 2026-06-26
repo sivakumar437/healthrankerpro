@@ -1,33 +1,38 @@
 import { state } from "../state.js";
 import { render } from "../renderer.js";
+import { showToast } from "../helpers.js";
+import { refreshData } from "./data.js";
 
-export function applyAuditFilters() {
-  state.auditFilters = {
-    search: document.getElementById("auditFilterSearch")?.value.trim() || "",
-    from: document.getElementById("auditFilterFrom")?.value || "",
-    to: document.getElementById("auditFilterTo")?.value || "",
-  };
+export function applyAuditFilters(event) {
+  event?.preventDefault?.();
+  const form = document.querySelector("#auditFilterForm");
+  if (form) {
+    state.auditFilters = Object.fromEntries(new FormData(form).entries());
+  }
   render();
 }
 
 export function clearAuditFilters() {
-  state.auditFilters = {};
+  state.auditFilters = { from: "", to: "", type: "" };
   render();
 }
 
-export function applyPaymentFilters() {
+export function applyPaymentFilters(event) {
+  event?.preventDefault?.();
+  const form = document.querySelector("#paymentFilterForm");
+  const formData = form ? Object.fromEntries(new FormData(form).entries()) : {};
   state.paymentFilters = {
-    member: document.getElementById("paymentFilterMember")?.value.trim() || "",
-    cardType: document.getElementById("paymentFilterCardType")?.value || "",
-    mode: document.getElementById("paymentFilterMode")?.value || "",
-    from: document.getElementById("paymentFilterFrom")?.value || "",
-    to: document.getElementById("paymentFilterTo")?.value || "",
+    ...state.paymentFilters,
+    from: formData.from || "",
+    to: formData.to || "",
+    cardType: formData.cardType || "",
+    showSum: !!document.querySelector("#paymentShowSum")?.checked,
   };
   render();
 }
 
 export function clearPaymentFilters() {
-  state.paymentFilters = {};
+  state.paymentFilters = { from: "", to: "", cardType: "", memberId: "", showSum: false };
   render();
 }
 
