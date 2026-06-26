@@ -1,5 +1,5 @@
 import { state } from "../state.js";
-import { api } from "../api.js";
+import { api, applyData } from "../api.js";
 import { render } from "../renderer.js";
 import { showToast, splitMemberName, memberCode, cardStandardAmount, paymentBenefitValue, availableCardTypesFor, attendanceSearchResults, focusSearchInput, currentLocalDate, syncAgeFromDob, isoWeekLabel } from "../helpers.js";
 import { refreshData } from "./data.js";
@@ -31,22 +31,35 @@ export async function saveEditMember(form) {
 }
 
 export async function saveMeasurement(form) {
-  const data = Object.fromEntries(new FormData(form));
+  const measurement = Object.fromEntries(new FormData(form));
+  const wasEdit = !!measurement.measurementId;
+  const wasExistingMember = !!measurement.memberId;
+  const returnToProfile = measurement.source === "profile" && measurement.memberId;
+  const submitBtn = form.querySelector("#measurementSubmitButton");
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = "Saving..."; }
   try {
-    await api("/api/save-measurement", { method: "POST", body: JSON.stringify(data) });
-    showToast("Measurement saved.");
+    const data = await api("/api/measurements", { method: "POST", body: JSON.stringify({ measurement }) });
+    applyData(data);
     state.modal = null;
-    await refreshData();
+    if (returnToProfile) {
+      state.route = "profile";
+      state.profileMemberId = measurement.memberId;
+    } else {
+      state.route = "measurements";
+    }
+    render();
+    showToast(wasEdit ? "Measurement updated successfully." : wasExistingMember ? "Measurement added successfully." : "Member created and measurement added successfully.");
   } catch (err) {
+    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = wasEdit ? "Update Measurement" : "Save Measurement"; }
     showToast(err.message || "Failed to save measurement.");
   }
 }
 
 export async function saveEditMeasurement(form) {
-  const data = Object.fromEntries(new FormData(form));
+  const measurement = Object.fromEntries(new FormData(form));
   try {
-    await api("/api/save-measurement", { method: "POST", body: JSON.stringify(data) });
-    showToast("Measurement updated.");
+    const data = await api("/api/measurements", { method: "POST", body: JSON.stringify({ measurement }) });
+    applyData(data);
     state.modal = null;
     await refreshData();
   } catch (err) {
