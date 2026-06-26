@@ -1,7 +1,7 @@
 import { state } from "../state.js";
 import { api } from "../api.js";
 import { render } from "../renderer.js";
-import { showToast, splitMemberName, memberCode, cardStandardAmount, paymentBenefitValue, availableCardTypesFor, attendanceSearchResults, focusSearchInput, currentLocalDate, syncAgeFromDob } from "../helpers.js";
+import { showToast, splitMemberName, memberCode, cardStandardAmount, paymentBenefitValue, availableCardTypesFor, attendanceSearchResults, focusSearchInput, currentLocalDate, syncAgeFromDob, isoWeekLabel } from "../helpers.js";
 import { refreshData } from "./data.js";
 
 export async function saveMember(form) {
@@ -35,9 +35,7 @@ export async function saveMeasurement(form) {
   try {
     await api("/api/save-measurement", { method: "POST", body: JSON.stringify(data) });
     showToast("Measurement saved.");
-    form.reset();
-    document.getElementById("measurementMemberId").value = "";
-    document.getElementById("measurementMemberPreview").innerHTML = "";
+    state.modal = null;
     await refreshData();
   } catch (err) {
     showToast(err.message || "Failed to save measurement.");
@@ -105,28 +103,55 @@ export async function saveUser(form) {
 }
 
 export function handleMeasurementLookup(query) {
-  state.measurementMemberSearch = query;
-  render();
+  const memberIdInput = document.getElementById("measurementMemberId");
+  if (memberIdInput) memberIdInput.value = "";
+  const submitBtn = document.querySelector("#measurementSubmitButton");
+  if (submitBtn) submitBtn.textContent = "Create Member";
+  const q = (query || "").trim().toLowerCase();
+  const results = [...document.querySelectorAll("#measurementLookupResults .lookup-result")];
+  let visible = 0;
+  results.forEach((btn) => {
+    const matched = !q || btn.innerText.toLowerCase().includes(q);
+    btn.hidden = !matched;
+    if (matched) visible++;
+  });
+  if (q && !visible) {
+    const parts = splitMemberName(q);
+    const first = document.querySelector("#measurementFirstName");
+    const last = document.querySelector("#measurementLastName");
+    if (first) first.value = parts.first;
+    if (last) last.value = parts.last;
+  }
+  let noMatch = document.querySelector("#lookupNoMatch");
+  if (!noMatch) {
+    noMatch = document.createElement("div");
+    noMatch.id = "lookupNoMatch";
+    noMatch.className = "lookup-empty";
+    noMatch.textContent = "No match found. Continue below to create a new member.";
+    document.querySelector("#measurementLookupResults")?.appendChild(noMatch);
+  }
+  noMatch.hidden = !!(visible || !q);
 }
 
 export function fillMeasurementMember(memberId) {
   const member = state.members.find((m) => Number(m.id) === Number(memberId));
   if (!member) return;
-  const hiddenInput = document.getElementById("measurementMemberId");
-  const preview = document.getElementById("measurementMemberPreview");
-  const searchInput = document.getElementById("measurementMemberSearch");
-  if (hiddenInput) hiddenInput.value = memberId;
-  if (searchInput) { searchInput.value = member.name; state.measurementMemberSearch = ""; }
-  if (preview) preview.innerHTML = `<div class="member-preview"><strong>${member.name}</strong><small>${member.phone || ""}</small></div>`;
-  render();
+  const parts = splitMemberName(member.name);
+  const fields = {
+    "#measurementMemberId": String(member.id),
+    "#measurementFirstName": parts.first,
+    "#measurementLastName": parts.last,
+    "#measurementMemberSearch": member.name,
+  };
+  Object.entries(fields).forEach(([sel, val]) => { const el = document.querySelector(sel); if (el) el.value = val || ""; });
 }
 
 export function updateMeasurementSubmitLabel() {
   const memberIdInput = document.getElementById("measurementMemberId");
-  const btn = document.getElementById("measurementSubmitBtn");
+  const btn = document.getElementById("measurementSubmitButton") || document.getElementById("measurementSubmitBtn");
   if (!btn || !memberIdInput) return;
-  const memberId = memberIdInput.value;
-  btn.textContent = memberId ? "Update Measurement" : "Add Measurement";
+  const isEdit = !!document.querySelector('input[name="measurementId"]')?.value;
+  btn.textContent = isEdit ? "Update Measurement" : memberIdInput.value ? "Save Measurement" : "Create Member";
 }
 
 export function updateCardPaymentDefaults(memberId, cardType) {
@@ -142,12 +167,9 @@ export function updateCardPaymentDefaults(memberId, cardType) {
 }
 
 export function updateMeasurementWeekFromDate(dateValue) {
-  const weekInput = document.getElementById("measurementWeekNumber");
+  const weekInput = document.getElementById("measurementWeekLabel") || document.getElementById("measurementWeekNumber");
   if (!weekInput || !dateValue) return;
-  const d = new Date(dateValue);
-  const jan1 = new Date(d.getFullYear(), 0, 1);
-  const weekNum = Math.ceil(((d - jan1) / 86400000 + jan1.getDay() + 1) / 7);
-  weekInput.value = weekNum;
+  weekInput.value = isoWeekLabel(dateValue);
 }
 
 export function filterAttendanceSearch(query) {

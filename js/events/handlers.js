@@ -1,7 +1,7 @@
 import { state, routes } from "../state.js";
 import { api } from "../api.js";
 import { render } from "../renderer.js";
-import { showToast, syncAgeFromDob, currentLocalMonth } from "../helpers.js";
+import { showToast, syncAgeFromDob, currentLocalMonth, canAddMeasurements } from "../helpers.js";
 import { refreshData, loadProfile, loadProfileAttendancePrev, loadProfileAttendanceNext, loadDashboardClubSummary, fetchMemberReport, loadProfileAttendanceForMonth } from "./data.js";
 import { handleLogin, updateLoginButton, togglePassword } from "./auth.js";
 import {
@@ -107,9 +107,58 @@ export async function handleAction(action, target) {
       render();
       break;
 
+    case "add-measurement": {
+      if (!canAddMeasurements()) { showToast("Measurement session has not been opened by the Admin for this week."); break; }
+      const memberId = target.dataset.memberId || "";
+      state.modal = state.route === "profile" && memberId ? `profile:${memberId}` : memberId || "open";
+      render();
+      break;
+    }
+
     case "edit-measurement": {
-      const measurement = state.measurements.find((m) => Number(m.id) === Number(target.dataset.measurementId));
-      if (measurement) { state.modal = measurement; render(); }
+      const measurementId = target.dataset.measurementId;
+      if (measurementId) { state.modal = `edit:${measurementId}`; render(); }
+      break;
+    }
+
+    case "select-measurement-member": {
+      const d = target.dataset;
+      const fields = {
+        "#measurementMemberId": d.memberId,
+        "#measurementFirstName": d.firstName,
+        "#measurementLastName": d.lastName,
+        "#measurementPhone": d.phone,
+        "#measurementMemberCode": d.memberCode,
+        "#measurementGender": d.gender,
+        "#measurementHeight": d.height,
+        "#measurementNutritionClub": d.nutritionClub,
+        "#measurementGoal": d.goal,
+        "#measurementMemberSearch": `${d.firstName || ""} ${d.lastName || ""}`.trim(),
+      };
+      Object.entries(fields).forEach(([sel, val]) => { const el = document.querySelector(sel); if (el) el.value = val || ""; });
+      document.querySelectorAll("#measurementLookupResults .lookup-result").forEach((btn) => {
+        btn.classList.toggle("selected", btn.dataset.memberId === d.memberId);
+      });
+      const submitBtn = document.querySelector("#measurementSubmitButton");
+      if (submitBtn) submitBtn.textContent = d.memberId ? "Save Measurement" : "Create Member";
+      break;
+    }
+
+    case "set-measurement-goal": {
+      const input = document.querySelector("#measurementGoal");
+      if (input) input.value = target.dataset.goal || "";
+      break;
+    }
+
+    case "set-profile-member-goal": {
+      const input = document.querySelector("#profileMemberGoal");
+      if (input) input.value = target.dataset.goal || "";
+      break;
+    }
+
+    case "view-profile": {
+      await loadProfile(target.dataset.memberId);
+      state.modal = null;
       break;
     }
 
@@ -270,6 +319,7 @@ export function bindEvents() {
     if (el.id === "memberSearch") { state.query = el.value; render(); }
     if (el.id === "attendanceSearch") filterAttendanceSearch(el.value);
     if (el.id === "measurementMemberSearch") handleMeasurementLookup(el.value);
+    if (el.id === "measurementSearch") { state.query = el.value; render(); }
     if (el.id === "memberDob" || el.id === "editMemberDob") {
       const ageField = el.id === "memberDob" ? "#memberAge" : "#editMemberAge";
       syncAgeFromDob(`#${el.id}`, ageField);
