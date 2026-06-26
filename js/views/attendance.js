@@ -1,5 +1,5 @@
 import { state, icons } from "../state.js";
-import { escapeHtml, formatCurrency, attendanceTimeLabel, attendanceTypeSelect, staffOptions, activeCardFor, paymentBenefitValue, paymentModeSelect, cardTypeSelect, memberContact, attendanceSearchResults, selectedAttendanceMember } from "../helpers.js";
+import { escapeHtml, formatCurrency, attendanceTimeLabel, attendanceTimeSortValue, attendanceTypeSelect, staffOptions, activeCardFor, paymentBenefitValue, paymentModeSelect, cardTypeSelect, memberContact, attendanceSearchResults, selectedAttendanceMember } from "../helpers.js";
 import { restricted, empty } from "./components.js";
 
 export function renderAttendance() {
@@ -151,15 +151,66 @@ export function renderTodayView() {
   `;
 }
 
-function dailyAttendanceRows(date) {
+function guestNameFromReason(reason = "") {
+  const match = String(reason || "").match(/Guest:\s*([^|]+)/i);
+  return match ? match[1].trim() : "";
+}
+
+function effectiveAttendanceCount(row) {
+  const count = Number(row.neutral_day ? 0 : row.count_value || 0);
+  return guestNameFromReason(row.reason) ? Math.max(count, 2) : count;
+}
+
+function cardUsedBeforeDate(cardId, date) {
   return state.attendance
+    .filter((row) => Number(row.card_id) === Number(cardId))
+    .filter((row) => String(row.attendance_date) < String(date))
+    .reduce((sum, row) => sum + effectiveAttendanceCount(row), 0);
+}
+
+function splitDailyAttendanceRow(row) {
+  const guestName = guestNameFromReason(row.attendance.reason);
+  if (!guestName) return [row];
+  const totalCount = Math.max(Number(row.countValue || 0), 2);
+  const memberCount = 1;
+  return [
+    {
+      ...row,
+      countValue: memberCount,
+      displayTime: row.attendance.marked_on,
+      displayDetails: [row.attendance.attendance_type],
+      attendance: { ...row.attendance, reason: "", updated_by: "", updated_on: "" },
+    },
+    {
+      ...row,
+      countValue: totalCount - memberCount,
+      paymentTotal: 0,
+      benefitTotal: 0,
+      paymentModes: "",
+      paymentCards: "",
+      paymentCollectors: "",
+      payments: [],
+      displayTime: row.attendance.updated_on || row.attendance.marked_on,
+      displayName: guestName,
+      displayDetails: [
+        `Guest of ${row.attendance.member_name}`,
+        row.attendance.updated_on ? `Updated by ${row.attendance.updated_by || "-"} on ${row.attendance.updated_on}` : "",
+      ].filter(Boolean),
+      attendance: { ...row.attendance, reason: "", updated_by: "", updated_on: "" },
+    },
+  ];
+}
+
+function dailyAttendanceRows(date) {
+  const baseRows = state.attendance
     .filter((row) => row.attendance_date === date)
     .map((attendance) => {
       const card = state.cards?.find((c) => Number(c.id) === Number(attendance.card_id));
       const payments = (state.payments || []).filter((p) => {
         const sameDate = p.payment_date === date;
         const sameMember = Number(p.member_id) === Number(attendance.member_id);
-        return sameDate && sameMember;
+        const linkedAttendance = p.attendance_id && Number(p.attendance_id) === Number(attendance.id);
+        return sameDate && sameMember && (linkedAttendance || !p.attendance_id || Number(p.card_id || 0) === Number(attendance.card_id || 0));
       });
       const paymentTotal = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
       const benefitTotal = payments.reduce((s, p) => s + paymentBenefitValue(p), 0);
@@ -179,11 +230,22 @@ function dailyAttendanceRows(date) {
         countValue: Number(attendance.neutral_day ? 0 : attendance.count_value || 0),
       };
     })
-    .sort((a, b) => {
-      const va = Date.parse(a.displayTime) || 0;
-      const vb = Date.parse(b.displayTime) || 0;
-      return va - vb;
-    });
+    .sort((a, b) => attendanceTimeSortValue(a.attendance) - attendanceTimeSortValue(b.attendance));
+  const usedByCard = new Map();
+  const displayRows = baseRows.flatMap((row) => splitDailyAttendanceRow(row)).map((row) => {
+    if (!row.card || !row.attendance.card_id || !row.countValue) return { ...row, cardCount: null };
+    const cardId = Number(row.attendance.card_id);
+    if (!usedByCard.has(cardId)) usedByCard.set(cardId, cardUsedBeforeDate(cardId, date));
+    const used = usedByCard.get(cardId) + row.countValue;
+    usedByCard.set(cardId, used);
+    const target = Number(row.card.target_visits || 0);
+    return { ...row, cardCount: { used, target, remaining: Math.max(target - used, 0) } };
+  });
+  return displayRows.sort((a, b) => {
+    const va = Date.parse(a.displayTime) || 0;
+    const vb = Date.parse(b.displayTime) || 0;
+    return va - vb;
+  });
 }
 
 function dailyAttendanceRow(row, index) {
@@ -195,15 +257,23 @@ function dailyAttendanceRow(row, index) {
   if (row.paymentTotal > 0) paymentParts.push(`<strong>${formatCurrency(row.paymentTotal)}</strong><small>${escapeHtml(row.paymentModes || row.paymentCards || "Payment recorded")}</small>`);
   if (row.benefitTotal > 0) paymentParts.push(`<s class="benefit-value">${formatCurrency(row.benefitTotal)}</s><small>Complimentary</small>`);
   const paymentLabel = paymentParts.join("") || "-";
+  const cardCountLabel = row.cardCount
+    ? `<strong>${row.cardCount.used} / ${row.cardCount.target}</strong><small>${row.cardCount.remaining} remaining as of this date</small>`
+    : "-";
+  const detailLines = [
+    ...(row.displayDetails || [attendance.attendance_type]),
+    attendance.reason ? attendance.reason : "",
+    attendance.updated_on ? `Updated by ${attendance.updated_by || "-"} on ${attendance.updated_on}` : "",
+  ].filter(Boolean);
   return `
     <tr>
       <td class="today-serial-column"><strong>${index + 1}</strong></td>
-      <td><strong>${escapeHtml(row.displayName || attendance.member_name)}</strong></td>
+      <td><strong>${escapeHtml(row.displayName || attendance.member_name)}</strong>${detailLines.map((line) => `<small>${escapeHtml(line)}</small>`).join("")}</td>
       <td><strong>${attendanceTimeLabel({ marked_on: row.displayTime })}</strong></td>
       <td>${cardLabel}</td>
-      <td>${row.countValue || "-"}</td>
+      <td>${cardCountLabel}</td>
       <td>${paymentLabel}</td>
-      <td>${row.paymentTotal > 0 ? escapeHtml(row.paymentCollectors || "-") : "-"}</td>
+      <td>${row.paymentTotal > 0 || row.benefitTotal > 0 ? escapeHtml(row.paymentCollectors || "-") : "-"}</td>
     </tr>
   `;
 }
