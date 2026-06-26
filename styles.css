@@ -139,7 +139,7 @@ button {
   position: relative;
 }
 
-.input-wrap svg {
+.input-wrap > svg:first-child {
   color: var(--muted-foreground);
   height: 16px;
   left: 13px;
@@ -183,17 +183,23 @@ button {
   background: transparent;
   border: 0;
   color: var(--muted-foreground);
+  cursor: pointer;
   display: inline-flex;
   justify-content: center;
   padding: 0;
 }
 
-.toggle-password {
+.ghost-icon[data-action="toggle-password"] {
   height: 38px;
   position: absolute;
   right: 0;
   top: 0;
   width: 42px;
+}
+
+.ghost-icon[data-action="toggle-password"] svg {
+  height: 16px;
+  width: 16px;
 }
 
 .btn {
