@@ -56,7 +56,7 @@ export function renderTopbarAction() {
 }
 
 export function navButtons(mobile) {
-  const personalRoutes = ["dashboard", "members", "today", "attendance", "measurements", "payments", "rankings", "history", "profile"];
+  const personalRoutes = ["dashboard", "members", "today", "attendance", "measurements", "payments", "dmo", "rankings", "history", "profile"];
   const clubRoutes = ["dashboard", "members", "today", "attendance", "measurements", "payments", "dmo", "weekly-review", "marathon", "rankings", "compliance", "history", "reports", "audit", "export", "users"];
   const visibleRoutes = state.viewMode === "club" ? clubRoutes : personalRoutes;
   return visibleRoutes
@@ -65,7 +65,7 @@ export function navButtons(mobile) {
     .filter(([id]) => {
       if (state.user.role === "member") return ["dashboard", "measurements", "history"].includes(id);
       if (state.viewMode === "personal") {
-        if (["members", "today", "attendance", "dmo", "weekly-review", "compliance", "audit", "export", "users", "reports", "marathon"].includes(id)) return false;
+        if (["members", "today", "attendance", "weekly-review", "compliance", "audit", "export", "users", "reports", "marathon"].includes(id)) return false;
         return true;
       }
       if (id === "members" && !["admin", "nc_organiser", "super_admin"].includes(state.user.role)) return false;
