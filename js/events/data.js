@@ -55,6 +55,19 @@ export async function loadProfileAttendancePrev() {
   render();
 }
 
+export async function loadPaymentEntries() {
+  const f = state.paymentFilters || {};
+  const params = new URLSearchParams();
+  if (f.from) params.set("from", f.from);
+  if (f.to) params.set("to", f.to);
+  if (f.cardType) params.set("cardType", f.cardType);
+  if (f.memberId) params.set("memberId", f.memberId);
+  const data = await api(`/api/payments?${params.toString()}`);
+  state.payments = data.entries || data.payments || [];
+  state.paymentCardTypes = data.cardTypes || state.paymentCardTypes || [];
+  state.paymentTotal = Number(data.total || 0);
+}
+
 export async function loadProfileAttendanceForMonth() {
   await loadProfileAttendance();
   render();

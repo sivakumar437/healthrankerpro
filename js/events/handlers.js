@@ -365,11 +365,23 @@ export function bindEvents() {
     if (e.target.dataset.action === "club-combobox-input") clubComboboxOpen(e.target.dataset.combobox);
   });
 
-  document.addEventListener("change", (e) => {
+  document.addEventListener("change", async (e) => {
     const el = e.target;
     if (el.name === "cardType") {
       const memberId = el.closest("form")?.querySelector("[name='memberId']")?.value;
       if (memberId) updateCardPaymentDefaults(memberId, el.value);
+    }
+    if (el.id === "paymentShowSum") {
+      const form = document.querySelector("#paymentFilterForm");
+      const formData = form ? Object.fromEntries(new FormData(form).entries()) : {};
+      state.paymentFilters = {
+        ...state.paymentFilters,
+        from: formData.from || "",
+        to: formData.to || "",
+        cardType: formData.cardType || "",
+        showSum: el.checked,
+      };
+      await applyPaymentFilters();
     }
     if (el.id === "measurementMemberSearch") fillMeasurementMember(el.value);
   });

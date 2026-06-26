@@ -1,7 +1,7 @@
 import { state } from "../state.js";
 import { render } from "../renderer.js";
 import { showToast } from "../helpers.js";
-import { refreshData } from "./data.js";
+import { refreshData, loadPaymentEntries } from "./data.js";
 
 export function applyAuditFilters(event) {
   event?.preventDefault?.();
@@ -17,7 +17,7 @@ export function clearAuditFilters() {
   render();
 }
 
-export function applyPaymentFilters(event) {
+export async function applyPaymentFilters(event) {
   event?.preventDefault?.();
   const form = document.querySelector("#paymentFilterForm");
   const formData = form ? Object.fromEntries(new FormData(form).entries()) : {};
@@ -28,12 +28,24 @@ export function applyPaymentFilters(event) {
     cardType: formData.cardType || "",
     showSum: !!document.querySelector("#paymentShowSum")?.checked,
   };
-  render();
+  try {
+    await loadPaymentEntries();
+    render();
+    showToast("Payments filtered.");
+  } catch (err) {
+    showToast(err.message || "Failed to load payments.");
+  }
 }
 
-export function clearPaymentFilters() {
+export async function clearPaymentFilters() {
   state.paymentFilters = { from: "", to: "", cardType: "", memberId: "", showSum: false };
-  render();
+  try {
+    await loadPaymentEntries();
+    render();
+    showToast("Payment filters cleared.");
+  } catch (err) {
+    render();
+  }
 }
 
 export function applyLeadFilters() {

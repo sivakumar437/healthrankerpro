@@ -14,7 +14,7 @@ export function renderPayments() {
       <article class="payment-total-summary">
         <div class="payment-total-copy">
           <span>TOTAL PAYMENTS</span>
-          <strong>${formatCurrency(filtered.reduce((s, p) => s + Number(p.amount || 0), 0))}</strong>
+          <strong>${formatCurrency(state.paymentTotal)}</strong>
           <small>${filtered.length} result${filtered.length === 1 ? "" : "s"}</small>
         </div>
         <div class="payment-total-icon">${icons.wallet}</div>
@@ -24,7 +24,7 @@ export function renderPayments() {
       <table>
         <thead><tr><th>Date</th><th>Member</th><th>Card Type</th><th>Payment Type</th><th>Payments</th><th>Benefit / Status</th><th>Recorded By</th><th>Notes</th></tr></thead>
         <tbody>${filtered.map(paymentRow).join("") || `<tr><td colspan="8">${empty("No payments match the selected filters.")}</td></tr>`}</tbody>
-        ${f.showSum && filtered.length ? `<tfoot><tr><td colspan="4"><strong>Total Payments</strong></td><td><strong>${formatCurrency(filtered.reduce((s, p) => s + Number(p.amount || 0), 0))}</strong></td><td colspan="3"></td></tr></tfoot>` : ""}
+        ${f.showSum && filtered.length ? `<tfoot><tr><td colspan="4"><strong>Total Payments</strong></td><td><strong>${formatCurrency(state.paymentTotal)}</strong></td><td colspan="3"></td></tr></tfoot>` : ""}
       </table>
     </div>
   `;
