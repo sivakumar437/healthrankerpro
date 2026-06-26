@@ -29,6 +29,7 @@ export function routeIsAccessible(routeId) {
 export function changeRoute(routeId) {
   if (!routeIsAccessible(routeId)) return;
   state.route = routeId;
+  state.query = "";
   render();
 }
 
