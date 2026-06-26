@@ -1,7 +1,7 @@
 import { state, routes } from "../state.js";
 import { api } from "../api.js";
 import { render } from "../renderer.js";
-import { showToast, syncAgeFromDob, currentLocalMonth, canAddMeasurements } from "../helpers.js";
+import { showToast, syncAgeFromDob, currentLocalMonth, canAddMeasurements, focusSearchInput } from "../helpers.js";
 import { refreshData, loadProfile, loadProfileAttendancePrev, loadProfileAttendanceNext, loadDashboardClubSummary, fetchMemberReport, loadProfileAttendanceForMonth, loadPaymentEntries } from "./data.js";
 import { handleLogin, updateLoginButton, togglePassword } from "./auth.js";
 import {
@@ -329,10 +329,10 @@ export function bindEvents() {
     const el = e.target;
     if (el.dataset.action === "club-combobox-input") { clubComboboxOpen(el.dataset.combobox); return; }
     if (el.id === "username" || el.id === "password") updateLoginButton();
-    if (el.id === "memberSearch") { state.query = el.value; render(); }
-    if (el.id === "attendanceSearch") filterAttendanceSearch(el.value);
+    if (el.id === "memberSearch") { state.query = el.value; render(); focusSearchInput("#memberSearch"); }
+    if (el.id === "attendanceSearch") { filterAttendanceSearch(el.value); focusSearchInput("#attendanceSearch"); }
     if (el.id === "measurementMemberSearch") handleMeasurementLookup(el.value);
-    if (el.id === "measurementSearch") { state.query = el.value; render(); }
+    if (el.id === "measurementSearch") { state.query = el.value; render(); focusSearchInput("#measurementSearch"); }
     if (el.id === "memberDob" || el.id === "editMemberDob") {
       const ageField = el.id === "memberDob" ? "#memberAge" : "#editMemberAge";
       syncAgeFromDob(`#${el.id}`, ageField);
