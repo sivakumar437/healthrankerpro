@@ -2942,7 +2942,7 @@ def save_attendance(payload: dict[str, Any]) -> dict[str, Any]:
                 "INSERT INTO notifications (message, created_at) VALUES (?, ?)",
                 (f"{row['member_name']} has {row['remaining_visits']} visits remaining on {row['card_number']}.", stamp),
             )
-    return bootstrap(payload.get("userId"))
+    return bootstrap(payload.get("userId"), payload.get("viewMode", "personal"))
 
 
 class Handler(SimpleHTTPRequestHandler):

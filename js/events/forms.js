@@ -72,7 +72,7 @@ export async function saveAttendance(form) {
   const attendance = Object.fromEntries(new FormData(form));
   attendance.confirmUpdate = attendance.confirmUpdate === "1";
   try {
-    const data = await api("/api/attendance", { method: "POST", body: JSON.stringify({ attendance }) });
+    const data = await api("/api/attendance", { method: "POST", body: JSON.stringify({ attendance, viewMode: state.viewMode }) });
     const savedViewMode = state.viewMode;
     applyData(data);
     state.viewMode = savedViewMode;
