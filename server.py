@@ -2904,7 +2904,7 @@ def save_attendance(payload: dict[str, Any]) -> dict[str, Any]:
         }
         updated_cards = recalculate_member_cards(db, member_id, user["name"])
         for updated_card in updated_cards:
-            if updated_card.get("status") == "Completed" and completed_before.get(int(updated_card["id"])) != "Completed":
+            if updated_card["status"] == "Completed" and completed_before.get(int(updated_card["id"])) != "Completed":
                 db.execute("INSERT INTO audit (action, actor, created_at) VALUES (?, ?, ?)", (f"Card Completed - {member['name']} {updated_card['card_number']}", user["name"], stamp))
 
         amount = float(data.get("paymentAmount") or 0)
