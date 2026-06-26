@@ -2654,11 +2654,20 @@ button {
   width: 27px;
 }
 
-.payments-table table {
-  min-width: 1120px;
+.payments-table {
+  overflow-x: auto;
 }
 
-.payment-amount-cell {
+.payments-table table {
+  min-width: 1240px;
+}
+
+.payments-table th {
+  white-space: nowrap;
+}
+
+.payment-amount-cell,
+.payment-benefit-cell {
   white-space: nowrap;
 }
 
