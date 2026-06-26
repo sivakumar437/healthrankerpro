@@ -69,9 +69,9 @@ export async function saveEditMeasurement(form) {
 }
 
 export async function saveAttendance(form) {
-  const data = Object.fromEntries(new FormData(form));
+  const attendance = Object.fromEntries(new FormData(form));
   try {
-    await api("/api/attendance", { method: "POST", body: JSON.stringify(data) });
+    await api("/api/attendance", { method: "POST", body: JSON.stringify({ attendance }) });
     showToast("Attendance recorded.");
     state.attendanceSearch = "";
     state.attendanceMemberId = null;
