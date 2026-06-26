@@ -31,6 +31,7 @@ export function renderProfile() {
             ` : ""}
           </div>
         </div>
+        ${state.user.role === "admin" && state.profileEditOpen ? renderProfileEditSection(member) : ""}
         <div class="stats-grid grid">
           ${stat("Current Card", card ? card.card_type : "None", card ? `${card.completed_visits}/${card.target_visits} visits` : "No active card", icons.clipboard, "bg-primary")}
           ${stat("Remaining Visits", card ? card.remaining_visits : "-", card ? card.status : "No active card", icons.clock, Number(card?.remaining_visits || 0) <= 3 ? "bg-amber" : "bg-emerald")}
@@ -39,7 +40,6 @@ export function renderProfile() {
         </div>
       </article>
       ${renderBodyCompositionDashboard(member, measurements)}
-      ${state.user.role === "admin" && state.profileEditOpen ? renderProfileEditSection(member) : ""}
       <div class="profile-history-stack">
         ${renderMemberAttendanceCalendar(attendance)}
         <article class="table-card profile-history-card measurement-history-card">

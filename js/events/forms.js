@@ -23,7 +23,8 @@ export async function saveEditMember(form) {
   const payload = { ...rest, name: [firstName, lastName].filter(Boolean).join(" ") };
   try {
     await api("/api/save-member", { method: "POST", body: JSON.stringify(payload) });
-    showToast("Member updated.");
+    state.profileEditOpen = false;
+    showToast("Member saved successfully.");
     await refreshData();
   } catch (err) {
     showToast(err.message || "Failed to update member.");
