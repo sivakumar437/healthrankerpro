@@ -38,6 +38,10 @@ export async function handleAction(action, target) {
       togglePassword(target);
       break;
 
+    case "print-member-report":
+      window.print();
+      break;
+
     case "logout":
       await api("/api/logout", { method: "POST" });
       window.location.reload();
@@ -287,9 +291,13 @@ export function bindEvents() {
     else if (form.id === "auditFilterForm") applyAuditFilters(e);
     else if (form.id === "paymentFilterForm") applyPaymentFilters(e);
     else if (form.id === "importForm") await handleImport(form);
-    else if (form.id === "reportForm") {
-      const select = document.getElementById("reportMemberId");
-      if (select?.value) await fetchMemberReport(select.value);
+    else if (form.id === "memberReportForm") {
+      const fd = Object.fromEntries(new FormData(form).entries());
+      if (fd.memberId) {
+        state.reportMemberId = fd.memberId;
+        state.reportThroughDate = fd.throughDate || "";
+        await fetchMemberReport(fd.memberId);
+      }
     }
   });
 
