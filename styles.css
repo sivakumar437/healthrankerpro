@@ -1154,6 +1154,10 @@ button {
   flex-basis: 100%;
 }
 
+.inline-attendance-form .modal-actions {
+  margin-top: 6px;
+}
+
 .no-card-status {
   align-self: center;
   flex: 0 0 auto;
