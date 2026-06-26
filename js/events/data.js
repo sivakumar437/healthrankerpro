@@ -55,6 +55,11 @@ export async function loadProfileAttendancePrev() {
   render();
 }
 
+export async function loadProfileAttendanceForMonth() {
+  await loadProfileAttendance();
+  render();
+}
+
 export async function loadProfileAttendanceNext() {
   const [year, month] = (state.profileAttendanceMonth || new Date().toISOString().slice(0, 7)).split("-").map(Number);
   const next = new Date(year, month, 1);

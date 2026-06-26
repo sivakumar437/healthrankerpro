@@ -1,8 +1,8 @@
 import { state, routes } from "../state.js";
 import { api } from "../api.js";
 import { render } from "../renderer.js";
-import { showToast, syncAgeFromDob } from "../helpers.js";
-import { refreshData, loadProfile, loadProfileAttendancePrev, loadProfileAttendanceNext, loadDashboardClubSummary, fetchMemberReport } from "./data.js";
+import { showToast, syncAgeFromDob, currentLocalMonth } from "../helpers.js";
+import { refreshData, loadProfile, loadProfileAttendancePrev, loadProfileAttendanceNext, loadDashboardClubSummary, fetchMemberReport, loadProfileAttendanceForMonth } from "./data.js";
 import { handleLogin, updateLoginButton, togglePassword } from "./auth.js";
 import {
   saveMember, saveEditMember, saveMeasurement, saveEditMeasurement,
@@ -278,6 +278,10 @@ export function bindEvents() {
     if (el.id === "showHiddenMembers") { state.showHiddenMembers = el.checked; render(); }
     if (el.id === "rankingsMarathonOnly") { state.rankingsMarathonOnly = el.checked; render(); }
     if (el.id === "dashboardClubFilter") loadDashboardClubSummary(el.value);
+    if (el.id === "profileAttendanceMonth") {
+      state.profileAttendanceMonth = el.value || currentLocalMonth();
+      loadProfileAttendanceForMonth();
+    }
   });
 
   document.addEventListener("submit", async (e) => {
