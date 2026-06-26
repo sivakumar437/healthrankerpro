@@ -29,7 +29,7 @@ export function renderLogin(error = "") {
               <div class="input-wrap">
                 ${icons.lock}
                 <input id="password" class="password-input" type="password" placeholder="Enter password" autocomplete="current-password" />
-                <button class="ghost-icon toggle-password" type="button" aria-label="Show password">${icons.eye}</button>
+                <button class="ghost-icon" type="button" data-action="toggle-password" data-target="password" aria-label="Show password">${icons.eye}</button>
               </div>
             </div>
             <button id="submitLogin" class="btn btn-primary btn-block" disabled>Sign in</button>

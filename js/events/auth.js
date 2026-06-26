@@ -1,4 +1,4 @@
-import { state } from "../state.js";
+import { state, icons } from "../state.js";
 import { api } from "../api.js";
 import { render } from "../renderer.js";
 
@@ -9,9 +9,13 @@ export function updateLoginButton() {
   if (btn && user && pass) btn.disabled = !user.value.trim() || !pass.value;
 }
 
-export function togglePassword() {
-  const input = document.getElementById("password");
-  if (input) input.type = input.type === "password" ? "text" : "password";
+export function togglePassword(btn) {
+  const targetId = btn?.dataset?.target || "password";
+  const input = document.getElementById(targetId);
+  if (!input) return;
+  const isHidden = input.type === "password";
+  input.type = isHidden ? "text" : "password";
+  if (btn) btn.innerHTML = isHidden ? icons.eyeOff : icons.eye;
 }
 
 export async function handleLogin(e) {

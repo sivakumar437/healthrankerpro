@@ -286,6 +286,9 @@ def schema_sql(dialect: str) -> str:
               dob TEXT DEFAULT '',
               height REAL DEFAULT 0,
               nutrition_club TEXT NOT NULL DEFAULT 'Main Nutrition Club',
+              coach_id TEXT DEFAULT '',
+              supervisor_id TEXT NOT NULL DEFAULT '',
+              be_coach INTEGER NOT NULL DEFAULT 0,
               card_type TEXT DEFAULT '',
               notes TEXT DEFAULT '',
               goal TEXT NOT NULL,
@@ -295,7 +298,6 @@ def schema_sql(dialect: str) -> str:
               marathon INTEGER NOT NULL DEFAULT 0,
               marathon_month TEXT NOT NULL DEFAULT '',
               last_measured TEXT NOT NULL,
-              supervisor_id TEXT NOT NULL,
               active INTEGER NOT NULL DEFAULT 1,
               created_date TEXT DEFAULT ''
             );
@@ -368,6 +370,26 @@ def schema_sql(dialect: str) -> str:
               id {auto_pk},
               message TEXT NOT NULL,
               created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS leads (
+              id {auto_pk},
+              lead_code TEXT UNIQUE NOT NULL,
+              name TEXT NOT NULL,
+              phone TEXT NOT NULL,
+              area TEXT DEFAULT '',
+              place TEXT DEFAULT '',
+              city TEXT DEFAULT '',
+              health_challenge TEXT DEFAULT '',
+              activity TEXT DEFAULT '',
+              nutrition_club TEXT NOT NULL DEFAULT 'Main Nutrition Club',
+              created_date TEXT NOT NULL,
+              next_follow_up_date TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT 'New',
+              followups TEXT NOT NULL DEFAULT '[]',
+              created_by TEXT NOT NULL,
+              updated_by TEXT,
+              updated_on TEXT
             );
 
             CREATE TABLE IF NOT EXISTS auth_sessions (
@@ -478,6 +500,9 @@ def migrate_schema(db: DbConnection) -> None:
             "dob": "TEXT DEFAULT ''",
             "height": "REAL DEFAULT 0",
             "nutrition_club": "TEXT NOT NULL DEFAULT 'Main Nutrition Club'",
+            "coach_id": "TEXT DEFAULT ''",
+            "supervisor_id": "TEXT NOT NULL DEFAULT ''",
+            "be_coach": "INTEGER NOT NULL DEFAULT 0",
             "card_type": "TEXT DEFAULT ''",
             "notes": "TEXT DEFAULT ''",
             "active": "INTEGER NOT NULL DEFAULT 1",
@@ -529,6 +554,26 @@ def migrate_schema(db: DbConnection) -> None:
     backfill_payment_creator_ids(db)
     backfill_member_codes(db)
     backfill_member_created_dates(db)
+    ensure_columns(
+        db,
+        "leads",
+        {
+            "lead_code": "TEXT UNIQUE",
+            "area": "TEXT DEFAULT ''",
+            "place": "TEXT DEFAULT ''",
+            "city": "TEXT DEFAULT ''",
+            "health_challenge": "TEXT DEFAULT ''",
+            "activity": "TEXT DEFAULT ''",
+            "nutrition_club": "TEXT NOT NULL DEFAULT 'Main Nutrition Club'",
+            "created_date": "TEXT NOT NULL DEFAULT ''",
+            "next_follow_up_date": "TEXT NOT NULL DEFAULT ''",
+            "status": "TEXT NOT NULL DEFAULT 'New'",
+            "followups": "TEXT NOT NULL DEFAULT '[]'",
+            "created_by": "TEXT NOT NULL DEFAULT ''",
+            "updated_by": "TEXT",
+            "updated_on": "TEXT",
+        },
+    )
 
 
 def ensure_columns(db: DbConnection, table: str, columns: dict[str, str]) -> None:
@@ -544,14 +589,14 @@ def backfill_user_clubs(db: DbConnection) -> None:
         club_row = None
         if user["role"] == "member" and user.get("member_id"):
             club_row = db.execute("SELECT nutrition_club FROM members WHERE id = ?", (user["member_id"],)).fetchone()
-        elif user["role"] == "supervisor":
+        elif user["role"] in {"supervisor", "coach", "nc_organiser"}:
             club_row = db.execute(
                 """
                 SELECT nutrition_club, COUNT(*) AS total FROM members
-                WHERE supervisor_id = ? AND active = 1
+                WHERE (supervisor_id = ? OR coach_id = ?) AND active = 1
                 GROUP BY nutrition_club ORDER BY total DESC, nutrition_club LIMIT 1
                 """,
-                (user["id"],),
+                (user["id"], user["id"]),
             ).fetchone()
         elif user["role"] != "super_admin":
             club_row = db.execute(
@@ -646,6 +691,8 @@ def create_indexes(db: DbConnection) -> None:
         """
         CREATE INDEX IF NOT EXISTS idx_members_member_code ON members(member_code);
         CREATE INDEX IF NOT EXISTS idx_members_club_phone ON members(nutrition_club, phone);
+        CREATE INDEX IF NOT EXISTS idx_members_coach ON members(coach_id);
+        CREATE INDEX IF NOT EXISTS idx_members_supervisor ON members(supervisor_id);
         CREATE INDEX IF NOT EXISTS idx_measurements_member_date ON measurements(member_id, measurement_date);
         CREATE INDEX IF NOT EXISTS idx_attendance_member_date ON attendance(member_id, attendance_date);
         CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance(attendance_date);
@@ -653,6 +700,9 @@ def create_indexes(db: DbConnection) -> None:
         CREATE INDEX IF NOT EXISTS idx_payments_date ON payments(payment_date);
         CREATE INDEX IF NOT EXISTS idx_payments_creator ON payments(created_by_user_id);
         CREATE INDEX IF NOT EXISTS idx_payments_benefit ON payments(is_benefit);
+        CREATE INDEX IF NOT EXISTS idx_leads_club_phone ON leads(nutrition_club, phone);
+        CREATE INDEX IF NOT EXISTS idx_leads_created_date ON leads(created_date);
+        CREATE INDEX IF NOT EXISTS idx_leads_followup_date ON leads(next_follow_up_date);
         CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id);
         CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires ON auth_sessions(expires_at);
         """
@@ -681,6 +731,8 @@ def seed(db: DbConnection) -> None:
     users = [
         ("u-admin", "admin", "admin", "Admin User", "admin", None),
         ("u-supervisor", "supervisor", "supervisor", "Supervisor", "supervisor", None),
+        ("u-coach", "coach", "coach", "Coach", "coach", None),
+        ("u-organiser", "organiser", "organiser", "NC Organiser", "nc_organiser", None),
         ("u-viewer", "viewer", "viewer", "Viewer", "viewer", None),
         ("u-member", "member", "member", "Aarav Mehta", "member", 1),
     ]
@@ -1029,15 +1081,12 @@ def member_report_data(user_id: str | None, params: dict[str, list[str]]) -> dic
         }
 
 
-def scoped_members(db: sqlite3.Connection, user: dict[str, Any]) -> list[dict[str, Any]]:
-    if user["role"] == "member":
-        rows = db.execute("SELECT * FROM members WHERE id = ?", (user["member_id"],)).fetchall()
-    elif user["role"] == "supervisor":
-        rows = db.execute("SELECT * FROM members WHERE nutrition_club = ? ORDER BY rank", (current_club(user),)).fetchall()
-    elif user["role"] in {"admin", "super_admin"}:
-        rows = db.execute("SELECT * FROM members ORDER BY rank").fetchall()
-    else:
-        rows = db.execute("SELECT * FROM members WHERE nutrition_club = ? ORDER BY rank", (current_club(user),)).fetchall()
+def scoped_members(db: sqlite3.Connection, user: dict[str, Any], mode: str = "club") -> list[dict[str, Any]]:
+    clause, values = member_scope_clause(user, mode)
+    rows = db.execute(
+        f"SELECT * FROM members WHERE {clause} ORDER BY rank",
+        values,
+    ).fetchall()
     members = rows_to_list(rows)
     month_start, next_month_start = current_month_bounds()
     active_rows = db.execute(
@@ -1143,73 +1192,69 @@ def reset_marathon(payload: dict[str, Any]) -> dict[str, Any]:
     return bootstrap(payload.get("userId"))
 
 
-def scoped_measurements(db: sqlite3.Connection, user: dict[str, Any]) -> list[dict[str, Any]]:
+def scoped_measurements(db: sqlite3.Connection, user: dict[str, Any], mode: str = "club") -> list[dict[str, Any]]:
     params: tuple[Any, ...]
-    if user["role"] == "member":
-        sql = "SELECT * FROM measurements WHERE member_id = ? ORDER BY measurement_date DESC"
-        params = (user["member_id"],)
-    elif user["role"] == "supervisor":
-        sql = """
-        SELECT measurements.* FROM measurements
-        JOIN members ON members.id = measurements.member_id
-        WHERE members.nutrition_club = ?
-        ORDER BY measurement_date DESC
-        """
-        params = (current_club(user),)
-    elif user["role"] in {"admin", "super_admin"}:
-        sql = "SELECT * FROM measurements ORDER BY measurement_date DESC"
-        params = ()
+    if mode == "personal":
+        member_id = personal_member_id(user)
+        if member_id:
+            sql = "SELECT * FROM measurements WHERE member_id = ? ORDER BY measurement_date DESC"
+            params = (member_id,)
+        else:
+            return []
     else:
-        sql = """
+        clause, values = member_scope_clause(user, mode)
+        sql = f"""
         SELECT measurements.* FROM measurements
         JOIN members ON members.id = measurements.member_id
-        WHERE members.nutrition_club = ?
+        WHERE {clause.replace('nutrition_club', 'members.nutrition_club').replace('supervisor_id', 'members.supervisor_id').replace('coach_id', 'members.coach_id').replace('id = ?', 'members.id = ?')}
         ORDER BY measurement_date DESC
         """
-        params = (current_club(user),)
+        params = values
     return rows_to_list(db.execute(sql, params).fetchall())
 
-
-def scoped_cards(db: sqlite3.Connection, user: dict[str, Any]) -> list[dict[str, Any]]:
-    if user["role"] == "member":
-        rows = db.execute("SELECT * FROM membership_cards WHERE member_id = ? ORDER BY id DESC", (user["member_id"],)).fetchall()
-    elif user["role"] == "supervisor":
+def scoped_cards(db: sqlite3.Connection, user: dict[str, Any], mode: str = "club") -> list[dict[str, Any]]:
+    if mode == "personal":
+        member_id = personal_member_id(user)
+        if not member_id:
+            return []
+        rows = db.execute("SELECT * FROM membership_cards WHERE member_id = ? ORDER BY id DESC", (member_id,)).fetchall()
+    else:
+        clause, values = member_scope_clause(user, mode)
         rows = db.execute(
-            """
+            f"""
             SELECT c.* FROM membership_cards c
             JOIN members m ON m.id = c.member_id
-            WHERE m.nutrition_club = ?
+            WHERE {clause.replace('nutrition_club', 'm.nutrition_club').replace('supervisor_id', 'm.supervisor_id').replace('coach_id', 'm.coach_id').replace('id = ?', 'm.id = ?')}
             ORDER BY CASE WHEN c.status = 'Active' THEN 0 ELSE 1 END, c.start_date, c.id
             """,
-            (current_club(user),),
-        ).fetchall()
-    else:
-        rows = db.execute(
-            "SELECT * FROM membership_cards ORDER BY CASE WHEN status = 'Active' THEN 0 ELSE 1 END, start_date, id"
+            values,
         ).fetchall()
     return rows_to_list(rows)
 
-
-def scoped_attendance(db: sqlite3.Connection, user: dict[str, Any]) -> list[dict[str, Any]]:
-    if user["role"] == "member":
-        rows = db.execute("SELECT * FROM attendance WHERE member_id = ? ORDER BY attendance_date DESC, id DESC LIMIT 80", (user["member_id"],)).fetchall()
-    elif user["role"] == "supervisor":
+def scoped_attendance(db: sqlite3.Connection, user: dict[str, Any], mode: str = "club") -> list[dict[str, Any]]:
+    if mode == "personal":
+        member_id = personal_member_id(user)
+        if not member_id:
+            return []
+        rows = db.execute("SELECT * FROM attendance WHERE member_id = ? ORDER BY attendance_date DESC, id DESC LIMIT 80", (member_id,)).fetchall()
+    else:
+        clause, values = member_scope_clause(user, mode)
         rows = db.execute(
-            """
+            f"""
             SELECT a.* FROM attendance a
             JOIN members m ON m.id = a.member_id
-            WHERE m.nutrition_club = ?
-            ORDER BY a.attendance_date DESC, a.id DESC LIMIT 80
+            WHERE {clause.replace('nutrition_club', 'm.nutrition_club').replace('supervisor_id', 'm.supervisor_id').replace('coach_id', 'm.coach_id').replace('id = ?', 'm.id = ?')}
+            ORDER BY a.attendance_date DESC, a.id DESC LIMIT 120
             """,
-            (current_club(user),),
+            values,
         ).fetchall()
-    else:
-        rows = db.execute("SELECT * FROM attendance ORDER BY attendance_date DESC, id DESC LIMIT 120").fetchall()
     return rows_to_list(rows)
 
-
-def scoped_payments(db: sqlite3.Connection, user: dict[str, Any]) -> list[dict[str, Any]]:
-    if user["role"] == "member":
+def scoped_payments(db: sqlite3.Connection, user: dict[str, Any], mode: str = "club") -> list[dict[str, Any]]:
+    if mode == "personal":
+        member_id = personal_member_id(user)
+        if not member_id:
+            return []
         rows = db.execute(
             """
             SELECT p.*, COALESCE(c.card_type, ac.card_type, '') AS card_type,
@@ -1221,7 +1266,7 @@ def scoped_payments(db: sqlite3.Connection, user: dict[str, Any]) -> list[dict[s
             WHERE p.member_id = ?
             ORDER BY p.payment_date DESC, p.id DESC LIMIT 80
             """,
-            (user["member_id"],),
+            (member_id,),
         ).fetchall()
     elif user["role"] == "supervisor":
         rows = db.execute(
@@ -1253,19 +1298,97 @@ def scoped_payments(db: sqlite3.Connection, user: dict[str, Any]) -> list[dict[s
     return rows_to_list(rows)
 
 
+def scoped_leads(db: sqlite3.Connection, user: dict[str, Any], mode: str = "club") -> list[dict[str, Any]]:
+    if mode == "personal":
+        return []
+    if user["role"] == "super_admin":
+        rows = db.execute("SELECT * FROM leads ORDER BY created_date DESC, id DESC LIMIT 100").fetchall()
+    else:
+        rows = db.execute(
+            "SELECT * FROM leads WHERE nutrition_club = ? ORDER BY created_date DESC, id DESC LIMIT 100",
+            (current_club(user),),
+        ).fetchall()
+    leads = rows_to_list(rows)
+    for lead in leads:
+        lead["followups"] = parse_followups(lead.get("followups"))
+    return leads
+
+
+def weekly_review_data(db: sqlite3.Connection, user: dict[str, Any], start_date: str, end_date: str, mode: str = "club") -> dict[str, Any]:
+    if mode == "personal":
+        return {"startDate": start_date, "endDate": end_date, "tiles": [], "details": {}}
+    members = scoped_members(db, user, mode)
+    member_ids = [int(member["id"]) for member in members]
+    lead_rows = scoped_leads(db, user, mode)
+    card_rows = scoped_cards(db, user, mode)
+
+    def within(date_value: str) -> bool:
+        return start_date <= str(date_value)[:10] <= end_date
+
+    lead_items = [
+        {
+            "id": lead["id"],
+            "name": lead["name"],
+            "phone": lead["phone"],
+            "place": lead.get("place", ""),
+            "activity": lead.get("activity", ""),
+            "createdDate": lead.get("created_date", ""),
+            "status": lead.get("status", "New"),
+        }
+        for lead in lead_rows
+        if within(lead.get("created_date", ""))
+    ]
+    walkins = [card for card in card_rows if card.get("card_type") == "Complimentary Card" and within(card.get("created_date", ""))]
+    trials = [card for card in card_rows if card.get("card_type") == "Trial Card" and within(card.get("created_date", ""))]
+    ums = [card for card in card_rows if card.get("card_type") in {"26 Days Card", "30 Days Card"} and within(card.get("created_date", ""))]
+
+    return {
+        "startDate": start_date,
+        "endDate": end_date,
+        "tiles": [
+            {"key": "leads", "title": "Leads", "count": len(lead_items), "items": lead_items},
+            {"key": "walkins", "title": "Walk-ins", "count": len(walkins), "items": walkins},
+            {"key": "trials", "title": "Trials", "count": len(trials), "items": trials},
+            {"key": "ums", "title": "UMS", "count": len(ums), "items": ums},
+        ],
+        "details": {
+            "leads": lead_items,
+            "walkins": walkins,
+            "trials": trials,
+            "ums": ums,
+        },
+        "memberCount": len(member_ids),
+    }
+
+
 def payment_entries(user_id: str | None, params: dict[str, list[str]]) -> dict[str, Any]:
     with connect() as db:
         user = get_user(db, user_id)
         require_role(user, "admin", "supervisor", "super_admin")
         clauses: list[str] = []
         values: list[Any] = []
+        joins = "JOIN members m ON m.id = p.member_id"
 
         if user["role"] == "supervisor":
             clauses.extend([
-                "p.club = ?",
+                "m.nutrition_club = ?",
+                "m.supervisor_id = ?",
                 "(p.created_by_user_id = ? OR ((p.created_by_user_id IS NULL OR p.created_by_user_id = '') AND p.created_by = ?))",
             ])
-            values.extend([current_club(user), user["id"], user["name"]])
+            values.extend([current_club(user), user["id"], user["id"], user["name"]])
+        elif user["role"] == "coach":
+            clauses.extend([
+                "m.nutrition_club = ?",
+                "m.coach_id = ?",
+                "(p.created_by_user_id = ? OR ((p.created_by_user_id IS NULL OR p.created_by_user_id = '') AND p.created_by = ?))",
+            ])
+            values.extend([current_club(user), user["id"], user["id"], user["name"]])
+        elif user["role"] == "nc_organiser":
+            clauses.append("m.nutrition_club = ?")
+            values.append(current_club(user))
+        elif user["role"] == "admin":
+            clauses.append("m.nutrition_club = ?")
+            values.append(current_club(user))
 
         member_id = (params.get("memberId", [""])[0] or "").strip()
         date_from = (params.get("from", [""])[0] or "").strip()
@@ -1293,6 +1416,7 @@ def payment_entries(user_id: str | None, params: dict[str, list[str]]) -> dict[s
             SELECT p.*, COALESCE(c.card_type, ac.card_type, '') AS card_type,
                    COALESCE(c.card_number, ac.card_number, '') AS card_number
             FROM payments p
+            {joins}
             LEFT JOIN membership_cards c ON p.card_id = c.id
             LEFT JOIN attendance a ON p.attendance_id = a.id
             LEFT JOIN membership_cards ac ON a.card_id = ac.id
@@ -1368,21 +1492,24 @@ def member_attendance_entries(user_id: str | None, params: dict[str, list[str]])
     return {"month": month, "entries": entries}
 
 
-def bootstrap(user_id: str | None) -> dict[str, Any]:
+def bootstrap(user_id: str | None, requested_view: str = "personal") -> dict[str, Any]:
     with connect() as db:
         session = ensure_current_session(db)
         user = get_user(db, user_id)
-        users = rows_to_list(db.execute("SELECT id, username, name, role, member_id, nutrition_club FROM users ORDER BY role, name").fetchall()) if user and user["role"] in {"admin", "super_admin"} else []
-        audit = rows_to_list(db.execute("SELECT action, actor, created_at FROM audit ORDER BY id DESC LIMIT 30").fetchall()) if user and user["role"] in {"admin", "super_admin"} else []
+        view_mode = view_mode_allowed(user, requested_view)
+        users = rows_to_list(db.execute("SELECT id, username, name, role, member_id, nutrition_club FROM users ORDER BY role, name").fetchall()) if user and user["role"] in {"admin", "super_admin"} and view_mode == "club" else []
+        audit = rows_to_list(db.execute("SELECT action, actor, created_at FROM audit ORDER BY id DESC LIMIT 30").fetchall()) if user and user["role"] in {"admin", "super_admin"} and view_mode == "club" else []
         notifications = rows_to_list(db.execute("SELECT message, created_at FROM notifications ORDER BY id DESC LIMIT 30").fetchall())
         return {
             "user": user,
+            "viewMode": view_mode,
             "users": users,
-            "members": scoped_members(db, user) if user else [],
-            "measurements": scoped_measurements(db, user) if user else [],
-            "cards": scoped_cards(db, user) if user else [],
-            "attendance": scoped_attendance(db, user) if user else [],
-            "payments": scoped_payments(db, user) if user else [],
+            "members": scoped_members(db, user, view_mode) if user else [],
+            "measurements": scoped_measurements(db, user, view_mode) if user else [],
+            "cards": scoped_cards(db, user, view_mode) if user else [],
+            "attendance": scoped_attendance(db, user, view_mode) if user else [],
+            "payments": scoped_payments(db, user, view_mode) if user else [],
+            "leads": scoped_leads(db, user, view_mode) if user else [],
             "session": session,
             "audit": audit,
             "notifications": notifications,
@@ -1391,6 +1518,171 @@ def bootstrap(user_id: str | None) -> dict[str, Any]:
             "dashboardClubs": dashboard_clubs(db, user) if user and user["role"] == "super_admin" else [],
             "week": current_week(),
         }
+
+
+def dmo_leads(user_id: str | None, params: dict[str, list[str]]) -> dict[str, Any]:
+    with connect() as db:
+        user = get_user(db, user_id)
+        require_role(user, "coach", "supervisor", "admin", "nc_organiser", "super_admin")
+        view_mode = view_mode_allowed(user, params.get("view", ["club"])[0])
+        leads = scoped_leads(db, user, view_mode)
+        date_from = (params.get("from", [""])[0] or "").strip()
+        date_to = (params.get("to", [""])[0] or "").strip()
+        place = (params.get("place", [""])[0] or "").strip().lower()
+
+        def match(lead: dict[str, Any]) -> bool:
+            created = str(lead.get("created_date", ""))[:10]
+            if date_from and created < date_from:
+                return False
+            if date_to and created > date_to:
+                return False
+            if place and place not in str(lead.get("place", "")).strip().lower():
+                return False
+            return True
+
+        filtered = [lead for lead in leads if match(lead)]
+        latest = filtered[:20]
+        today = datetime.now().date().isoformat()
+        reminders = []
+        tomorrow = (datetime.now().date() + timedelta(days=1)).isoformat()
+        for lead in filtered:
+            followups = lead.get("followups") or []
+            for followup in followups:
+                due_date = str(followup.get("nextFollowUpDate") or followup.get("followUpDate") or "").strip()
+                status = str(followup.get("status") or "").lower()
+                if not due_date:
+                    continue
+                item = {
+                    "leadId": lead.get("id"),
+                    "leadName": lead.get("name"),
+                    "phone": lead.get("phone"),
+                    "followupNumber": followup.get("number"),
+                    "dueDate": due_date,
+                    "notes": followup.get("notes", ""),
+                    "status": followup.get("status", ""),
+                    "place": lead.get("place", ""),
+                }
+                if due_date == today:
+                    reminders.append({**item, "bucket": "today"})
+                elif due_date == tomorrow:
+                    reminders.append({**item, "bucket": "tomorrow"})
+                elif due_date < today and status not in {"done", "completed"}:
+                    reminders.append({**item, "bucket": "missed"})
+                elif due_date <= (datetime.now().date() + timedelta(days=1)).isoformat():
+                    reminders.append({**item, "bucket": "upcoming-1-day"})
+                elif due_date <= (datetime.now().date() + timedelta(hours=4)).date().isoformat():
+                    reminders.append({**item, "bucket": "upcoming-4-hours"})
+                elif due_date <= (datetime.now().date() + timedelta(minutes=15)).date().isoformat():
+                    reminders.append({**item, "bucket": "upcoming-15-min"})
+        return {
+            "leads": latest,
+            "allLeads": filtered,
+            "reminders": reminders,
+            "filters": {"from": date_from, "to": date_to, "place": place},
+        }
+
+
+def save_lead(payload: dict[str, Any]) -> dict[str, Any]:
+    with connect() as db:
+        user = get_user(db, payload.get("userId"))
+        require_role(user, "coach", "supervisor", "admin", "nc_organiser", "super_admin")
+        data = payload.get("lead", {})
+        name = str(data.get("name", "")).strip()
+        phone = str(data.get("phone", "")).strip()
+        place = str(data.get("place", "")).strip()
+        next_follow_up_date = str(data.get("nextFollowUpDate", "")).strip()
+        if not name or not phone or not next_follow_up_date:
+            raise ValueError("Name, phone number, and next follow-up date are required.")
+        club = current_club(user)
+        duplicate = db.execute("SELECT id, name FROM leads WHERE phone = ? AND nutrition_club = ?", (phone, club)).fetchone()
+        if duplicate:
+            raise ValueError(f"Lead already exists for this phone number: {duplicate['name']}")
+        lead_id = int(first_value(db.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM leads").fetchone()))
+        lead_code_value = lead_code(lead_id)
+        followups = lead_followups_template(next_follow_up_date)
+        stamp = now_label()
+        db.execute(
+            """
+            INSERT INTO leads
+            (id, lead_code, name, phone, area, place, city, health_challenge, activity, nutrition_club,
+             created_date, next_follow_up_date, status, followups, created_by, updated_by, updated_on)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                lead_id,
+                lead_code_value,
+                name,
+                phone,
+                str(data.get("area", "")).strip(),
+                place,
+                str(data.get("city", "")).strip(),
+                str(data.get("healthChallenge", "")).strip(),
+                str(data.get("activity", "")).strip(),
+                club,
+                datetime.now().date().isoformat(),
+                next_follow_up_date,
+                "New",
+                serialise_followups(followups),
+                user["name"],
+                user["name"],
+                stamp,
+            ),
+        )
+        db.execute("INSERT INTO audit (action, actor, created_at) VALUES (?, ?, ?)", (f"Lead Created - {name}", user["name"], stamp))
+    return bootstrap(payload.get("userId"), payload.get("viewMode") or "club")
+
+
+def update_lead_followup(payload: dict[str, Any]) -> dict[str, Any]:
+    with connect() as db:
+        user = get_user(db, payload.get("userId"))
+        require_role(user, "coach", "supervisor", "admin", "nc_organiser", "super_admin")
+        lead_id = int(payload.get("leadId") or 0)
+        lead = db.execute("SELECT * FROM leads WHERE id = ?", (lead_id,)).fetchone()
+        if not lead:
+            raise ValueError("Lead not found.")
+        if user["role"] != "super_admin" and str(lead["nutrition_club"] or "") != current_club(user):
+            raise PermissionError("You can only update leads in your Nutrition Club.")
+        followups = parse_followups(lead.get("followups"))
+        followup_number = int(payload.get("followupNumber") or 0)
+        if followup_number < 1 or followup_number > 10:
+            raise ValueError("Follow-up number must be between 1 and 10.")
+        followup = next((item for item in followups if int(item.get("number") or 0) == followup_number), None)
+        if not followup:
+            raise ValueError("Follow-up record not found.")
+        if payload.get("followupDate"):
+            followup["followUpDate"] = str(payload.get("followupDate"))[:10]
+        if payload.get("notes") is not None:
+            followup["notes"] = str(payload.get("notes", "")).strip()
+        if payload.get("nextFollowUpDate"):
+            followup["nextFollowUpDate"] = str(payload.get("nextFollowUpDate"))[:10]
+        if payload.get("status"):
+            followup["status"] = str(payload.get("status"))
+        lead_status = "Follow-up Due"
+        if any(str(item.get("status", "")).lower() in {"done", "completed"} for item in followups):
+            lead_status = "In Progress"
+        if all(str(item.get("status", "")).lower() in {"done", "completed"} for item in followups if item.get("followUpDate")):
+            lead_status = "Converted"
+        stamp = now_label()
+        db.execute(
+            "UPDATE leads SET followups = ?, status = ?, updated_by = ?, updated_on = ? WHERE id = ?",
+            (serialise_followups(followups), lead_status, user["name"], stamp, lead_id),
+        )
+        db.execute("INSERT INTO audit (action, actor, created_at) VALUES (?, ?, ?)", (f"Lead Follow-up Updated - {lead['name']}", user["name"], stamp))
+    return bootstrap(payload.get("userId"), payload.get("viewMode") or "club")
+
+
+def weekly_review_entries(user_id: str | None, params: dict[str, list[str]]) -> dict[str, Any]:
+    with connect() as db:
+        user = get_user(db, user_id)
+        require_role(user, "coach", "supervisor", "admin", "nc_organiser", "super_admin")
+        start_date = (params.get("from", [""])[0] or "").strip()
+        end_date = (params.get("to", [""])[0] or "").strip()
+        if not start_date or not end_date:
+            today = datetime.now().date()
+            end_date = end_date or today.isoformat()
+            start_date = start_date or (today - timedelta(days=6)).isoformat()
+        mode = view_mode_allowed(user, params.get("view", ["club"])[0])
+        return weekly_review_data(db, user, start_date, end_date, mode)
 
 
 def audit_entries(user_id: str | None, params: dict[str, list[str]]) -> dict[str, Any]:
@@ -1623,6 +1915,79 @@ def current_club(user: dict[str, Any] | None) -> str:
     return str(user.get("nutrition_club") or "Main Nutrition Club")
 
 
+def club_view_roles() -> set[str]:
+    return {"coach", "supervisor", "admin", "nc_organiser", "super_admin"}
+
+
+def view_mode_allowed(user: dict[str, Any] | None, requested: str | None) -> str:
+    mode = str(requested or "personal").strip().lower()
+    if mode == "club" and user and user.get("role") in club_view_roles():
+        return "club"
+    return "personal"
+
+
+def personal_member_id(user: dict[str, Any] | None) -> int | None:
+    if not user:
+        return None
+    member_id = int(user.get("member_id") or 0)
+    return member_id or None
+
+
+def member_scope_clause(user: dict[str, Any], mode: str) -> tuple[str, tuple[Any, ...]]:
+    role = user["role"]
+    if mode == "personal":
+        if role == "member" and user.get("member_id"):
+            return "id = ?", (user["member_id"],)
+        if user.get("member_id"):
+            return "id = ?", (user["member_id"],)
+        return "1 = 0", ()
+    if role == "super_admin":
+        return "1 = 1", ()
+    if role in {"admin", "nc_organiser"}:
+        return "nutrition_club = ?", (current_club(user),)
+    if role == "supervisor":
+        return "nutrition_club = ? AND supervisor_id = ?", (current_club(user), user["id"])
+    if role == "coach":
+        return "nutrition_club = ? AND coach_id = ?", (current_club(user), user["id"])
+    if role == "member" and user.get("member_id"):
+        return "id = ?", (user["member_id"],)
+    return "nutrition_club = ?", (current_club(user),)
+
+
+def member_scope_join_clause(user: dict[str, Any], mode: str, member_alias: str = "members") -> tuple[str, tuple[Any, ...]]:
+    clause, values = member_scope_clause(user, mode)
+    if clause == "1 = 1":
+        return "", ()
+    if member_alias == "members":
+        return clause, values
+    clause = clause.replace("nutrition_club", f"{member_alias}.nutrition_club")
+    clause = clause.replace("supervisor_id", f"{member_alias}.supervisor_id")
+    clause = clause.replace("coach_id", f"{member_alias}.coach_id")
+    clause = clause.replace("id", f"{member_alias}.id") if clause == "id = ?" else clause
+    return clause, values
+
+
+def selected_view_user(user: dict[str, Any], mode: str) -> dict[str, Any]:
+    if mode == "personal" and user.get("member_id"):
+        return {**user, "member_id": user.get("member_id")}
+    return user
+
+
+def can_access_member(user: dict[str, Any], member: dict[str, Any]) -> bool:
+    role = user["role"]
+    if role == "super_admin":
+        return True
+    if role in {"admin", "nc_organiser"}:
+        return str(member.get("nutrition_club") or "") == current_club(user)
+    if role == "supervisor":
+        return str(member.get("nutrition_club") or "") == current_club(user) and str(member.get("supervisor_id") or "") == user["id"]
+    if role == "coach":
+        return str(member.get("nutrition_club") or "") == current_club(user) and str(member.get("coach_id") or "") == user["id"]
+    if role == "member":
+        return int(user.get("member_id") or 0) == int(member.get("id") or 0)
+    return False
+
+
 def card_target(card_type: str) -> int:
     if card_type == "Complimentary Card":
         return 1
@@ -1649,6 +2014,41 @@ def card_standard_amount(card_type: str) -> float | None:
         "30 Days Card": 6200.0,
         "Marathon": 300.0,
     }.get(card_type)
+
+
+def lead_code(lead_id: int) -> str:
+    return f"LEAD-{lead_id:06d}"
+
+
+def lead_followups_template(first_follow_up_date: str = "") -> list[dict[str, Any]]:
+    followups = []
+    for index in range(1, 11):
+        followups.append(
+            {
+                "number": index,
+                "followUpDate": first_follow_up_date if index == 1 else "",
+                "notes": "",
+                "nextFollowUpDate": "",
+                "status": "Pending" if index == 1 and first_follow_up_date else "Not Scheduled",
+            }
+        )
+    return followups
+
+
+def parse_followups(raw: Any) -> list[dict[str, Any]]:
+    if not raw:
+        return lead_followups_template()
+    try:
+        followups = json.loads(str(raw))
+        if isinstance(followups, list):
+            return followups
+    except json.JSONDecodeError:
+        pass
+    return lead_followups_template()
+
+
+def serialise_followups(followups: list[dict[str, Any]]) -> str:
+    return json.dumps(followups, separators=(",", ":"), ensure_ascii=False)
 
 
 def create_or_select_member(db: DbConnection, user: dict[str, Any], data: dict[str, Any]) -> Any:
@@ -1682,13 +2082,15 @@ def create_or_select_member(db: DbConnection, user: dict[str, Any], data: dict[s
     member_code = generate_member_code(new_id)
     goal = str(data.get("goal", "")).strip() or "Health & Fitness"
     stamp = now_label()
-    supervisor_id = user["id"] if user["role"] == "supervisor" else "u-supervisor"
+    supervisor_id = str(data.get("supervisorId") or (user["id"] if user["role"] == "supervisor" else "u-supervisor")).strip() or "u-supervisor"
+    coach_id = str(data.get("coachId") or "").strip()
+    be_coach = bool_flag(data.get("beCoach", 0))
     db.execute(
         """
         INSERT INTO members
-        (id, member_code, name, phone, gender, age, dob, height, nutrition_club, card_type, notes,
-         goal, score, rank, measured, marathon, last_measured, supervisor_id, created_date)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 0, ?, 'New', ?, ?)
+        (id, member_code, name, phone, gender, age, dob, height, nutrition_club, coach_id, supervisor_id, be_coach, card_type, notes,
+         goal, score, rank, measured, marathon, last_measured, created_date)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 0, ?, 'New', ?)
         """,
         (
             new_id,
@@ -1700,12 +2102,14 @@ def create_or_select_member(db: DbConnection, user: dict[str, Any], data: dict[s
             str(data.get("dob", "")).strip(),
             float(data["height"]) if str(data.get("height", "")).strip() else 0,
             club,
+            coach_id,
+            supervisor_id,
+            be_coach,
             "",
             str(data.get("notes", "")).strip(),
             goal,
             new_id,
             0,
-            supervisor_id,
             datetime.now().date().isoformat(),
         ),
     )
@@ -1758,6 +2162,9 @@ def update_member(payload: dict[str, Any]) -> dict[str, Any]:
             "dob": str(data.get("dob", "")).strip(),
             "height": float(height_text) if height_text else 0,
             "nutrition_club": club,
+            "coach_id": str(data.get("coachId", member["coach_id"] or "")).strip(),
+            "supervisor_id": str(data.get("supervisorId", member["supervisor_id"] or "")).strip() or member["supervisor_id"],
+            "be_coach": bool_flag(data.get("beCoach", member["be_coach"] or 0)),
             "card_type": str(data.get("cardType", member["card_type"] or "")).strip(),
             "goal": str(data.get("goal", "")).strip() or "Health & Fitness",
             "marathon": bool_flag(data.get("marathon", member["marathon"] or 0)),
@@ -1767,7 +2174,8 @@ def update_member(payload: dict[str, Any]) -> dict[str, Any]:
             """
             UPDATE members SET
               name=:name, phone=:phone, gender=:gender, age=:age, dob=:dob, height=:height,
-              nutrition_club=:nutrition_club, card_type=:card_type, goal=:goal, marathon=:marathon, notes=:notes
+              nutrition_club=:nutrition_club, coach_id=:coach_id, supervisor_id=:supervisor_id, be_coach=:be_coach,
+              card_type=:card_type, goal=:goal, marathon=:marathon, notes=:notes
             WHERE id=:id
             """,
             values,
@@ -1804,14 +2212,14 @@ def update_member_status(payload: dict[str, Any]) -> dict[str, Any]:
 def save_card_payment(payload: dict[str, Any]) -> dict[str, Any]:
     with connect() as db:
         user = get_user(db, payload.get("userId"))
-        require_role(user, "admin", "supervisor", "super_admin")
+        require_role(user, "admin", "supervisor", "coach", "nc_organiser", "super_admin")
         data = payload.get("payment", {})
         member_id = int(data.get("memberId") or 0)
         member = db.execute("SELECT * FROM members WHERE id = ?", (member_id,)).fetchone()
         if not member:
             raise ValueError("Member not found.")
-        if user["role"] == "supervisor" and (member["nutrition_club"] or "") != current_club(user):
-            raise PermissionError("You can only add card payments for members in your Nutrition Club.")
+        if not can_access_member(user, member):
+            raise PermissionError("You can only add card payments for members you are assigned to.")
 
         card_type = str(data.get("cardType", "")).strip() or "Trial Card"
         if card_type in {"Complimentary Card", "Trial Card"}:
@@ -1913,7 +2321,7 @@ def save_user(payload: dict[str, Any]) -> dict[str, Any]:
         nutrition_club = str(data.get("nutritionClub") or current_club(actor)).strip() or current_club(actor)
         if not username or not password or not name:
             raise ValueError("Username, display name, and password are required.")
-        if role not in {"admin", "supervisor", "viewer", "member"}:
+        if role not in {"admin", "supervisor", "coach", "nc_organiser", "viewer", "member", "super_admin"}:
             raise ValueError("Invalid user role.")
         if db.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone():
             raise ValueError("Username already exists.")
@@ -2382,14 +2790,14 @@ def recalculate_card_usage(db: DbConnection, card_id: int | None, actor_name: st
 def save_attendance(payload: dict[str, Any]) -> dict[str, Any]:
     with connect() as db:
         user = get_user(db, payload.get("userId"))
-        require_role(user, "admin", "supervisor")
+        require_role(user, "admin", "supervisor", "coach", "nc_organiser", "super_admin")
         data = payload.get("attendance", {})
         member_id = int(data.get("memberId") or 0)
         member = db.execute("SELECT * FROM members WHERE id = ?", (member_id,)).fetchone()
         if not member:
             raise ValueError("Member not found.")
-        if user["role"] == "supervisor" and member["nutrition_club"] != current_club(user):
-            raise PermissionError("Supervisor can only mark attendance for members in their nutrition club.")
+        if not can_access_member(user, member):
+            raise PermissionError("You can only mark attendance for members you are assigned to.")
 
         attendance_type = data.get("attendanceType", "Present")
         attendance_date = data.get("attendanceDate") or datetime.now().date().isoformat()
@@ -2555,15 +2963,26 @@ class Handler(SimpleHTTPRequestHandler):
                 return part[len(prefix) :]
         return None
 
+    def is_request_secure(self) -> bool:
+        if os.environ.get("HTTPS", "").strip().lower() in {"1", "true", "yes", "on"}:
+            return True
+        proto = self.headers.get("X-Forwarded-Proto", "").strip().lower()
+        if proto == "https":
+            return True
+        ssl = self.headers.get("X-Forwarded-Ssl", "").strip().lower()
+        if ssl == "on":
+            return True
+        return False
+
     def session_cookie_value(self, token: str) -> str:
         parts = [
             f"{AUTH_SESSION_COOKIE}={token}",
             "Path=/",
             "HttpOnly",
-            "SameSite=Lax",
+            "SameSite=Strict",
             f"Max-Age={AUTH_SESSION_DAYS * 86400}",
         ]
-        if os.environ.get("HTTPS", "").strip().lower() in {"1", "true", "yes", "on"}:
+        if self.is_request_secure():
             parts.append("Secure")
         return "; ".join(parts)
 
@@ -2572,10 +2991,10 @@ class Handler(SimpleHTTPRequestHandler):
             f"{AUTH_SESSION_COOKIE}=",
             "Path=/",
             "HttpOnly",
-            "SameSite=Lax",
+            "SameSite=Strict",
             "Max-Age=0",
         ]
-        if os.environ.get("HTTPS", "").strip().lower() in {"1", "true", "yes", "on"}:
+        if self.is_request_secure():
             parts.append("Secure")
         return "; ".join(parts)
 
@@ -2620,7 +3039,8 @@ class Handler(SimpleHTTPRequestHandler):
             parsed = urlparse(self.path)
             if parsed.path == "/api/bootstrap":
                 user_id = self.authenticated_user_id(required=False)
-                self.send_json(bootstrap(user_id))
+                params = parse_qs(parsed.query)
+                self.send_json(bootstrap(user_id, (params.get("view", ["personal"])[0] or "personal")))
                 return
             if parsed.path == "/api/dashboard":
                 params = parse_qs(parsed.query)
@@ -2660,9 +3080,31 @@ class Handler(SimpleHTTPRequestHandler):
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 )
                 return
+            if parsed.path == "/api/weekly-review":
+                params = parse_qs(parsed.query)
+                user_id = self.authenticated_user_id()
+                self.send_json(weekly_review_entries(user_id, params))
+                return
+            if parsed.path == "/api/dmo/leads":
+                params = parse_qs(parsed.query)
+                user_id = self.authenticated_user_id()
+                self.send_json(dmo_leads(user_id, params))
+                return
             if parsed.path == "/health":
                 self.send_json({"ok": True, "database": database_dialect(), "database_url": "DATABASE_URL" if DATABASE_URL else str(DB_PATH)})
                 return
+            # Serve static JS files with no-cache so module updates reach the browser
+            if parsed.path.endswith(".js"):
+                file_path = ROOT / parsed.path.lstrip("/")
+                if file_path.exists():
+                    content = file_path.read_bytes()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/javascript")
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("Content-Length", str(len(content)))
+                    self.end_headers()
+                    self.wfile.write(content)
+                    return
             super().do_GET()
         except AuthenticationError as exc:
             self.send_json({"error": str(exc)}, 401)
@@ -2737,6 +3179,12 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             if parsed.path == "/api/users/delete":
                 self.send_json(delete_user(payload))
+                return
+            if parsed.path == "/api/dmo/leads":
+                self.send_json(save_lead(payload))
+                return
+            if parsed.path == "/api/dmo/leads/followup":
+                self.send_json(update_lead_followup(payload))
                 return
             if parsed.path == "/api/attendance":
                 self.send_json(save_attendance(payload))

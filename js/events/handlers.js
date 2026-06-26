@@ -3,7 +3,7 @@ import { api } from "../api.js";
 import { render } from "../renderer.js";
 import { showToast, syncAgeFromDob } from "../helpers.js";
 import { refreshData, loadProfile, loadProfileAttendancePrev, loadProfileAttendanceNext, loadDashboardClubSummary, fetchMemberReport } from "./data.js";
-import { handleLogin, updateLoginButton } from "./auth.js";
+import { handleLogin, updateLoginButton, togglePassword } from "./auth.js";
 import {
   saveMember, saveEditMember, saveMeasurement, saveEditMeasurement,
   saveAttendance, saveCardPayment, saveLead, saveUser,
@@ -34,6 +34,10 @@ export function changeRoute(routeId) {
 
 export async function handleAction(action, target) {
   switch (action) {
+    case "toggle-password":
+      togglePassword(target);
+      break;
+
     case "logout":
       await api("/api/logout", { method: "POST" });
       window.location.reload();
