@@ -124,24 +124,16 @@ export async function handleAction(action, target) {
 
     case "select-measurement-member": {
       const d = target.dataset;
-      const fields = {
-        "#measurementMemberId": d.memberId,
-        "#measurementFirstName": d.firstName,
-        "#measurementLastName": d.lastName,
-        "#measurementPhone": d.phone,
-        "#measurementMemberCode": d.memberCode,
-        "#measurementGender": d.gender,
-        "#measurementHeight": d.height,
-        "#measurementNutritionClub": d.nutritionClub,
-        "#measurementGoal": d.goal,
-        "#measurementMemberSearch": `${d.firstName || ""} ${d.lastName || ""}`.trim(),
-      };
-      Object.entries(fields).forEach(([sel, val]) => { const el = document.querySelector(sel); if (el) el.value = val || ""; });
-      document.querySelectorAll("#measurementLookupResults .lookup-result").forEach((btn) => {
-        btn.classList.toggle("selected", btn.dataset.memberId === d.memberId);
-      });
-      const submitBtn = document.querySelector("#measurementSubmitButton");
-      if (submitBtn) submitBtn.textContent = d.memberId ? "Save Measurement" : "Create Member";
+      if (d.memberId) {
+        state.modal = d.memberId;
+        render();
+      }
+      break;
+    }
+
+    case "clear-measurement-member": {
+      state.modal = "open";
+      render();
       break;
     }
 

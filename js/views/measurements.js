@@ -90,19 +90,24 @@ export function renderMeasurementModal(modalValue = "") {
         <div class="form-grid">
           ${profileMode ? `
             <div class="wide selected-filter"><span>Saving measurement for <strong>${escapeHtml(selected?.name || "")}</strong></span></div>
+          ` : selected ? `
+            <div class="wide selected-filter">
+              <span>Adding measurement for <strong>${escapeHtml(selected.name)}</strong> &mdash; ${escapeHtml(memberIdentity(selected))}</span>
+              <button class="btn btn-outline mini" type="button" data-action="clear-measurement-member">Change Member</button>
+            </div>
           ` : `
             <label class="wide"><span class="label">Search Member</span>
-              <input id="measurementMemberSearch" placeholder="${canViewPhones ? "Search by member name or phone number" : "Search by member name or ID"}" value="${selected ? escapeHtml(selected.name) : ""}" />
+              <input id="measurementMemberSearch" placeholder="${canViewPhones ? "Search by member name or phone number" : "Search by member name or ID"}" value="" />
             </label>
             <div class="wide lookup-results" id="measurementLookupResults">${memberResults}</div>
-            <label><span class="label">First Name</span><input name="firstName" id="measurementFirstName" value="${escapeHtml(nameParts.first)}" placeholder="First name" /></label>
-            <label><span class="label">Last Name</span><input name="lastName" id="measurementLastName" value="${escapeHtml(nameParts.last)}" placeholder="Last name" /></label>
-            <label><span class="label">Phone Number</span><input name="phone" id="measurementPhone" type="tel" value="${canViewPhones ? escapeHtml(selected?.phone || "") : ""}" placeholder="${canViewPhones ? "Phone number" : "Hidden for privacy"}" /></label>
-            <label><span class="label">Nutrition Club</span><input name="nutritionClub" id="measurementNutritionClub" value="${escapeHtml(selected?.nutrition_club || "")}" placeholder="Type or select a club..." /></label>
-            <label><span class="label">Member ID</span><input name="memberCode" id="measurementMemberCode" value="${escapeHtml(selected?.member_code || "")}" placeholder="Auto generated on save" /></label>
+            <label><span class="label">First Name</span><input name="firstName" id="measurementFirstName" value="" placeholder="First name" /></label>
+            <label><span class="label">Last Name</span><input name="lastName" id="measurementLastName" value="" placeholder="Last name" /></label>
+            <label><span class="label">Phone Number</span><input name="phone" id="measurementPhone" type="tel" value="" placeholder="${canViewPhones ? "Phone number" : "Hidden for privacy"}" /></label>
+            <label><span class="label">Nutrition Club</span><input name="nutritionClub" id="measurementNutritionClub" value="" placeholder="Type or select a club..." /></label>
+            <label><span class="label">Member ID</span><input name="memberCode" id="measurementMemberCode" value="" placeholder="Auto generated on save" /></label>
             <label><span class="label">Age</span><input name="age" type="number" step="1" placeholder="e.g. 35" /></label>
-            <label><span class="label">Gender</span><select name="gender" id="measurementGender" required><option value="">Select...</option><option ${selected?.gender === "Male" ? "selected" : ""}>Male</option><option ${selected?.gender === "Female" ? "selected" : ""}>Female</option></select></label>
-            <label class="wide"><span class="label">Purpose of Visit</span><input name="goal" id="measurementGoal" value="${escapeHtml(selected?.goal || "")}" placeholder="e.g. Weight Loss, Health &amp; Fitness, Muscle Building..." /></label>
+            <label><span class="label">Gender</span><select name="gender" id="measurementGender" required><option value="">Select...</option><option>Male</option><option>Female</option></select></label>
+            <label class="wide"><span class="label">Purpose of Visit</span><input name="goal" id="measurementGoal" value="" placeholder="e.g. Weight Loss, Health &amp; Fitness, Muscle Building..." /></label>
             <div class="wide goal-chip-row">
               ${goalOptions().map((goal) => `<button type="button" data-action="set-measurement-goal" data-goal="${escapeHtml(goal)}">${escapeHtml(goal)}</button>`).join("")}
             </div>
