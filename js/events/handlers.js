@@ -322,7 +322,7 @@ export function bindEvents() {
     if (el.dataset.action === "club-combobox-input") { clubComboboxOpen(el.dataset.combobox); return; }
     if (el.id === "username" || el.id === "password") updateLoginButton();
     if (el.id === "memberSearch") { state.query = el.value; render(); focusSearchInput("#memberSearch"); }
-    if (el.id === "attendanceSearch") { filterAttendanceSearch(el.value); focusSearchInput("#attendanceSearch"); }
+    if (el.id === "attendanceSearch") { state.attendanceMemberId = ""; filterAttendanceSearch(el.value); focusSearchInput("#attendanceSearch"); }
     if (el.id === "measurementMemberSearch") handleMeasurementLookup(el.value);
     if (el.id === "measurementSearch") { state.query = el.value; render(); focusSearchInput("#measurementSearch"); }
     if (el.id === "memberDob" || el.id === "editMemberDob") {
@@ -383,6 +383,7 @@ export function bindEvents() {
     if (el.id === "attendanceEntryDate") {
       state.attendanceEntryDate = el.value;
       state.attendanceMemberId = "";
+      state.query = "";
       const hidden = document.querySelector("#attendanceFormDate");
       if (hidden) hidden.value = state.attendanceEntryDate;
       render();
