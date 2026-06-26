@@ -1,7 +1,7 @@
 import { state } from "../state.js";
 import { api, applyData } from "../api.js";
 import { render } from "../renderer.js";
-import { showToast, splitMemberName, memberCode, cardStandardAmount, paymentBenefitValue, availableCardTypesFor, attendanceSearchResults, focusSearchInput, currentLocalDate, syncAgeFromDob, isoWeekLabel } from "../helpers.js";
+import { showToast, splitMemberName, memberCode, cardStandardAmount, paymentBenefitValue, availableCardTypesFor, attendanceSearchResults, focusSearchInput, currentLocalDate, syncAgeFromDob, isoWeekLabel, activeCardFor } from "../helpers.js";
 import { refreshData } from "./data.js";
 
 export async function saveMember(form) {
@@ -70,12 +70,20 @@ export async function saveEditMeasurement(form) {
 
 export async function saveAttendance(form) {
   const attendance = Object.fromEntries(new FormData(form));
+  attendance.confirmUpdate = attendance.confirmUpdate === "1";
   try {
-    await api("/api/attendance", { method: "POST", body: JSON.stringify({ attendance }) });
-    showToast("Attendance recorded.");
-    state.attendanceSearch = "";
-    state.attendanceMemberId = null;
-    await refreshData();
+    const data = await api("/api/attendance", { method: "POST", body: JSON.stringify({ attendance }) });
+    applyData(data);
+    state.attendanceEntryDate = attendance.attendanceDate || state.attendanceEntryDate;
+    state.attendanceEntryType = attendance.attendanceType || state.attendanceEntryType;
+    state.attendanceViewDate = attendance.attendanceDate || state.attendanceViewDate;
+    const hideDate = state.attendanceEntryDate;
+    state.attendanceHiddenByDate[hideDate] = [...new Set([...(state.attendanceHiddenByDate[hideDate] || []), String(attendance.memberId)])];
+    state.attendanceMemberId = "";
+    state.query = "";
+    const updatedCard = activeCardFor(attendance.memberId);
+    render();
+    showToast(updatedCard ? `Attendance saved. ${updatedCard.remaining_visits} visits remaining.` : "Attendance saved.");
   } catch (err) {
     showToast(err.message || "Failed to record attendance.");
   }
