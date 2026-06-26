@@ -415,6 +415,55 @@ button {
   max-width: 1120px;
 }
 
+.topbar-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.view-switcher-simple {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.view-switcher-simple .vs-active {
+  color: var(--foreground);
+  font-weight: 600;
+  cursor: default;
+}
+
+.view-switcher-simple .vs-inactive {
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+
+.view-switcher-simple .vs-inactive:hover {
+  color: var(--accent);
+}
+
+.view-switcher-simple .vs-divider {
+  color: var(--border);
+  user-select: none;
+}
+
+.segmented-control button {
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  color: var(--muted-foreground);
+  font-weight: 700;
+  padding: 10px 14px;
+}
+
+.segmented-control button.active {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
 .page-title h1 {
   font-size: 26px;
   margin: 0;
@@ -520,6 +569,18 @@ button {
   padding: 20px;
 }
 
+.metric-card {
+  align-items: flex-start;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  display: flex;
+  justify-content: space-between;
+  min-height: 112px;
+  padding: 20px;
+}
+
 .dashboard-metric-card p {
   color: var(--muted-foreground);
   font-size: 12px;
@@ -540,6 +601,25 @@ button {
   display: block;
   font-size: 12px;
   margin-top: 10px;
+}
+
+.metric-button {
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+}
+
+.metric-button .metric-copy {
+  min-width: 0;
+}
+
+.metric-button .metric-icon {
+  align-items: center;
+  border-radius: 12px;
+  display: flex;
+  height: 48px;
+  justify-content: center;
+  width: 48px;
 }
 
 .missed-measurements-section {
@@ -1254,6 +1334,63 @@ button {
 .single-entry-card,
 .add-member-entry-card {
   margin-bottom: 20px;
+}
+
+.dmo-page,
+.weekly-review-page,
+.personal-dashboard,
+.dmo-stack {
+  display: grid;
+  gap: 16px;
+}
+
+.dmo-tabs {
+  margin: 0 0 4px;
+}
+
+.lead-reminder-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.lead-reminder-grid .reminder-card {
+  min-height: 180px;
+}
+
+.reminder-list {
+  display: grid;
+  gap: 10px;
+}
+
+.reminder-item {
+  background: rgba(15, 160, 150, 0.06);
+  border-radius: 10px;
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+}
+
+.lead-followup-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.followup-slot {
+  display: grid;
+  gap: 10px;
+}
+
+.followup-head {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.lead-detail-card {
+  display: grid;
+  gap: 16px;
 }
 
 .entry-tabs {

@@ -39,12 +39,12 @@ export function renderShell(renderRouteFn, renderMeasurementModalFn) {
 
 export function renderViewSwitcher() {
   if (!state.user || !["coach", "supervisor", "admin", "nc_organiser", "super_admin"].includes(state.user.role)) return "";
-  const personalActive = state.viewMode !== "club";
-  const clubActive = state.viewMode === "club";
+  const isClub = state.viewMode === "club";
   return `
-    <div class="view-switcher" role="group" aria-label="Application view">
-      <button class="${personalActive ? "active" : ""}" type="button" data-action="switch-view" data-view="personal">Personal View</button>
-      <button class="${clubActive ? "active" : ""}" type="button" data-action="switch-view" data-view="club">Nutrition Club View</button>
+    <div class="view-switcher-simple">
+      <span class="${!isClub ? "vs-active" : "vs-inactive"}" data-action="switch-view" data-view="personal" role="button" tabindex="0">Personal</span>
+      <span class="vs-divider">|</span>
+      <span class="${isClub ? "vs-active" : "vs-inactive"}" data-action="switch-view" data-view="club" role="button" tabindex="0">Club</span>
     </div>
   `;
 }
@@ -56,7 +56,7 @@ export function renderTopbarAction() {
 }
 
 export function navButtons(mobile) {
-  const personalRoutes = ["dashboard", "members", "today", "attendance", "measurements", "payments", "dmo", "rankings", "history", "profile"];
+  const personalRoutes = ["dashboard", "dmo"];
   const clubRoutes = ["dashboard", "members", "today", "attendance", "measurements", "payments", "dmo", "weekly-review", "marathon", "rankings", "compliance", "history", "reports", "audit", "export", "users"];
   const visibleRoutes = state.viewMode === "club" ? clubRoutes : personalRoutes;
   return visibleRoutes
