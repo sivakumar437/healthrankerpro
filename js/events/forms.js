@@ -72,10 +72,10 @@ export async function saveAttendance(form) {
   const attendance = Object.fromEntries(new FormData(form));
   attendance.confirmUpdate = attendance.confirmUpdate === "1";
   try {
-    const data = await api("/api/attendance", { method: "POST", body: JSON.stringify({ attendance, viewMode: state.viewMode }) });
+    const data = await api("/api/attendance", { method: "POST", body: JSON.stringify({ attendance, viewMode: "club" }) });
     const savedViewMode = state.viewMode;
     applyData(data);
-    state.viewMode = savedViewMode;
+    state.viewMode = savedViewMode;  // restore user's chosen view after applyData
     state.attendanceEntryDate = attendance.attendanceDate || state.attendanceEntryDate;
     state.attendanceEntryType = attendance.attendanceType || state.attendanceEntryType;
     state.attendanceViewDate = attendance.attendanceDate || state.attendanceViewDate;
