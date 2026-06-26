@@ -73,7 +73,9 @@ export async function saveAttendance(form) {
   attendance.confirmUpdate = attendance.confirmUpdate === "1";
   try {
     const data = await api("/api/attendance", { method: "POST", body: JSON.stringify({ attendance }) });
+    const savedViewMode = state.viewMode;
     applyData(data);
+    state.viewMode = savedViewMode;
     state.attendanceEntryDate = attendance.attendanceDate || state.attendanceEntryDate;
     state.attendanceEntryType = attendance.attendanceType || state.attendanceEntryType;
     state.attendanceViewDate = attendance.attendanceDate || state.attendanceViewDate;
@@ -195,6 +197,6 @@ export function updateMeasurementWeekFromDate(dateValue) {
 }
 
 export function filterAttendanceSearch(query) {
-  state.attendanceSearch = query;
+  state.query = query;
   render();
 }
