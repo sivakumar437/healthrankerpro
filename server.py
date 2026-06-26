@@ -2793,7 +2793,7 @@ def save_attendance(payload: dict[str, Any]) -> dict[str, Any]:
         require_role(user, "admin", "supervisor", "coach", "nc_organiser", "super_admin")
         data = payload.get("attendance", {})
         member_id = int(data.get("memberId") or 0)
-        member = db.execute("SELECT * FROM members WHERE id = ?", (member_id,)).fetchone()
+        member = row_to_dict(db.execute("SELECT * FROM members WHERE id = ?", (member_id,)).fetchone())
         if not member:
             raise ValueError("Member not found.")
         if not can_access_member(user, member):
