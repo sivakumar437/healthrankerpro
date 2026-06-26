@@ -1,5 +1,5 @@
 import { state, icons } from "../state.js";
-import { escapeHtml, memberIdentity, supervisorName, formatSigned, staffOptions, goalOptions, canAddMeasurements } from "../helpers.js";
+import { escapeHtml, memberIdentity, supervisorName, formatSigned, staffOptions, goalOptions, canAddMeasurements, clubCombobox } from "../helpers.js";
 import { restricted, empty, memberCard, goalBadge } from "./components.js";
 
 export function renderMembers() {
@@ -42,7 +42,7 @@ export function renderSingleMemberEntry() {
         <label><span class="label">Age</span><input name="age" id="memberAge" type="number" min="0" placeholder="Age" /></label>
         <label><span class="label">Date of Birth</span><input name="dob" id="memberDob" type="date" /></label>
         <label><span class="label">Height (cm)</span><input name="height" type="number" step="0.1" placeholder="Height" /></label>
-        <label><span class="label">Nutrition Club</span><input name="nutritionClub" value="Main Nutrition Club" /></label>
+        <label><span class="label">Nutrition Club</span>${clubCombobox("nutritionClub")}</label>
         <label><span class="label">Coach</span><select name="coachId"><option value="">Unassigned</option>${staffOptions(["coach", "nc_organiser", "admin"])}</select></label>
         <label><span class="label">Supervisor</span><select name="supervisorId"><option value="">Auto assign</option>${staffOptions(["supervisor", "nc_organiser", "admin"])}</select></label>
         <label class="toggle-field wide"><span class="label">Be a Coach</span><input type="checkbox" name="beCoach" value="1" /><span class="toggle-switch" aria-hidden="true"></span></label>

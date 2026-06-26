@@ -292,6 +292,39 @@ export function showToast(message) {
   window.setTimeout(() => toast.classList.remove("show"), 1600);
 }
 
+export function knownClubs() {
+  const fromMembers = state.members.map((m) => m.nutrition_club).filter(Boolean);
+  const fromUsers = state.users.map((u) => u.nutrition_club).filter(Boolean);
+  const all = [...new Set([...fromMembers, ...fromUsers])].sort();
+  return all.length ? all : ["Main Nutrition Club"];
+}
+
+export function clubCombobox(name, currentValue = "") {
+  const clubs = knownClubs();
+  const id = `club-combo-${name}`;
+  return `
+    <div class="club-combobox" data-combobox="${name}">
+      <input
+        type="text"
+        name="${name}"
+        id="${id}"
+        class="club-combobox-input"
+        value="${escapeHtml(currentValue || clubs[0] || "")}"
+        placeholder="Type or select a club..."
+        autocomplete="off"
+        data-action="club-combobox-input"
+        data-combobox="${name}"
+      />
+      <div class="club-combobox-dropdown" id="${id}-dropdown" hidden>
+        ${clubs.map((c) => `<div class="club-combobox-option" data-action="club-combobox-select" data-combobox="${name}" data-value="${escapeHtml(c)}">${escapeHtml(c)}</div>`).join("")}
+        <div class="club-combobox-new" id="${id}-new-option" hidden data-action="club-combobox-select" data-combobox="${name}" data-value="">
+          <em>Add new: "<span class="club-new-label"></span>"</em>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 export function focusSearchInput(selector) {
   const input = document.querySelector(selector);
   if (!input) return;

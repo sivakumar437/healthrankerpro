@@ -189,12 +189,54 @@ export async function handleAction(action, target) {
   }
 }
 
+function clubComboboxOpen(name) {
+  const input = document.querySelector(`[data-combobox="${name}"].club-combobox-input`);
+  const dropdown = document.getElementById(`club-combo-${name}-dropdown`);
+  if (!dropdown || !input) return;
+  const query = input.value.trim().toLowerCase();
+  const options = dropdown.querySelectorAll(".club-combobox-option");
+  let anyVisible = false;
+  options.forEach((opt) => {
+    const match = opt.dataset.value.toLowerCase().includes(query);
+    opt.hidden = !match;
+    if (match) anyVisible = true;
+  });
+  const newOpt = document.getElementById(`club-combo-${name}-new-option`);
+  const exactMatch = [...options].some((o) => o.dataset.value.toLowerCase() === query);
+  if (newOpt) {
+    const isNew = query.length > 0 && !exactMatch;
+    newOpt.hidden = !isNew;
+    newOpt.dataset.value = input.value.trim();
+    const label = newOpt.querySelector(".club-new-label");
+    if (label) label.textContent = input.value.trim();
+    if (isNew) anyVisible = true;
+  }
+  dropdown.hidden = !anyVisible;
+}
+
+function clubComboboxSelect(name, value) {
+  const input = document.querySelector(`[data-combobox="${name}"].club-combobox-input`);
+  const dropdown = document.getElementById(`club-combo-${name}-dropdown`);
+  if (input) input.value = value;
+  if (dropdown) dropdown.hidden = true;
+}
+
 export function bindEvents() {
   document.addEventListener("click", async (e) => {
+    // Close all combobox dropdowns when clicking outside
+    if (!e.target.closest(".club-combobox")) {
+      document.querySelectorAll(".club-combobox-dropdown").forEach((d) => { d.hidden = true; });
+    }
     const btn = e.target.closest("[data-action]");
     if (btn) {
+      const action = btn.dataset.action;
+      if (action === "club-combobox-select") {
+        e.preventDefault();
+        clubComboboxSelect(btn.dataset.combobox, btn.dataset.value);
+        return;
+      }
       e.preventDefault();
-      await handleAction(btn.dataset.action, btn);
+      await handleAction(action, btn);
       return;
     }
     const routeBtn = e.target.closest("[data-route]");
@@ -210,6 +252,7 @@ export function bindEvents() {
 
   document.addEventListener("input", (e) => {
     const el = e.target;
+    if (el.dataset.action === "club-combobox-input") { clubComboboxOpen(el.dataset.combobox); return; }
     if (el.id === "username" || el.id === "password") updateLoginButton();
     if (el.id === "memberSearch") { state.query = el.value; render(); }
     if (el.id === "attendanceSearch") filterAttendanceSearch(el.value);
@@ -242,6 +285,10 @@ export function bindEvents() {
       const select = document.getElementById("reportMemberId");
       if (select?.value) await fetchMemberReport(select.value);
     }
+  });
+
+  document.addEventListener("focusin", (e) => {
+    if (e.target.dataset.action === "club-combobox-input") clubComboboxOpen(e.target.dataset.combobox);
   });
 
   document.addEventListener("change", (e) => {

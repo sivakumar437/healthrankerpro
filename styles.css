@@ -2888,6 +2888,60 @@ tr:last-child td {
   width: 78px;
 }
 
+/* ── Club Combobox ───────────────────────────────── */
+.club-combobox {
+  position: relative;
+  width: 100%;
+}
+
+.club-combobox-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.club-combobox-dropdown {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.10);
+  left: 0;
+  margin-top: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 200;
+}
+
+.club-combobox-option,
+.club-combobox-new {
+  cursor: pointer;
+  font-size: 13.5px;
+  padding: 9px 14px;
+  transition: background 0.12s;
+}
+
+.club-combobox-option:hover {
+  background: var(--muted);
+  color: var(--primary);
+}
+
+.club-combobox-new {
+  border-top: 1px solid var(--border);
+  color: var(--primary);
+}
+
+.club-combobox-new:hover {
+  background: var(--primary-soft);
+}
+
+.club-new-label {
+  font-style: normal;
+  font-weight: 600;
+}
+
+/* ── Toast ───────────────────────────────────────── */
 .toast {
   background: #10221e;
   border-radius: 10px;

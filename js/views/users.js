@@ -1,5 +1,5 @@
 import { state, icons } from "../state.js";
-import { escapeHtml, capitalize } from "../helpers.js";
+import { escapeHtml, capitalize, clubCombobox } from "../helpers.js";
 import { restricted, empty, roleBadge } from "./components.js";
 
 export function renderUsers() {
@@ -40,7 +40,7 @@ export function renderAddUserForm() {
             <option value="admin">Admin</option>
             <option value="member">Member</option>
           </select></label>
-          <label><span class="label">Nutrition Club</span><input name="nutritionClub" value="Main Nutrition Club" /></label>
+          <label><span class="label">Nutrition Club</span>${clubCombobox("nutritionClub")}</label>
           <div class="wide modal-actions"><button class="btn btn-primary" type="submit">${icons.plus} Create Account</button></div>
         </form>
       ` : ""}
