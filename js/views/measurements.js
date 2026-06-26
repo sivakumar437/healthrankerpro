@@ -118,7 +118,6 @@ export function renderMeasurementModal(modalValue = "") {
           <label><span class="label">BMI</span><input name="bmi" type="number" step="0.1" value="${val("bmi")}" placeholder="Enter KaradaScan BMI" /></label>
           <label><span class="label">BMA</span><input name="bma" type="number" step="0.1" value="${val("bma")}" placeholder="Enter BMA" /></label>
           <label><span class="label">Subcutaneous Fat</span><input name="subcutaneousFat" type="number" step="0.1" value="${val("subcutaneous_fat")}" placeholder="e.g. 22.4" /></label>
-          <label><span class="label">Muscle Mass (kg)</span><input name="muscleMass" type="number" step="0.1" value="${val("muscle_mass")}" placeholder="e.g. 45.0" /></label>
           <label><span class="label">Muscle %</span><input name="musclePercent" type="number" min="0" max="100" step="0.1" value="${val("muscle_percent")}" /></label>
           <label><span class="label">Waist (cm)</span><input name="waist" type="number" step="0.1" value="${val("waist", "0")}" required /></label>
           <label><span class="label">Hip (cm)</span><input name="hip" type="number" step="0.1" value="${val("hip", "0")}" required /></label>
