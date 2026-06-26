@@ -5,7 +5,7 @@ import { renderLogin, renderLoading } from "./views/login.js";
 import { renderShell } from "./views/shell.js";
 import { renderDashboard } from "./views/dashboard.js";
 import { renderMembers } from "./views/members.js";
-import { renderAttendance, renderAttendanceTodayView } from "./views/attendance.js";
+import { renderAttendance, renderTodayView } from "./views/attendance.js";
 import { renderMeasurements, renderMeasurementModal } from "./views/measurements.js";
 import { renderProfile } from "./views/profile.js";
 import { renderPayments } from "./views/payments.js";
@@ -28,7 +28,7 @@ function renderRoute() {
     case "dashboard": return renderDashboard();
     case "members": return renderMembers();
     case "attendance": return renderAttendance();
-    case "today": return renderAttendanceTodayView();
+    case "today": return renderTodayView();
     case "measurements": return renderMeasurements();
     case "profile": return renderProfile();
     case "payments": return renderPayments();
