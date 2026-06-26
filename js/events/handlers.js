@@ -2,7 +2,7 @@ import { state, routes } from "../state.js";
 import { api } from "../api.js";
 import { render } from "../renderer.js";
 import { showToast, syncAgeFromDob, currentLocalMonth, canAddMeasurements } from "../helpers.js";
-import { refreshData, loadProfile, loadProfileAttendancePrev, loadProfileAttendanceNext, loadDashboardClubSummary, fetchMemberReport, loadProfileAttendanceForMonth } from "./data.js";
+import { refreshData, loadProfile, loadProfileAttendancePrev, loadProfileAttendanceNext, loadDashboardClubSummary, fetchMemberReport, loadProfileAttendanceForMonth, loadPaymentEntries } from "./data.js";
 import { handleLogin, updateLoginButton, togglePassword } from "./auth.js";
 import {
   saveMember, saveEditMember, saveMeasurement, saveEditMeasurement,
@@ -194,6 +194,18 @@ export async function handleAction(action, target) {
       await api("/api/reset-marathon", { method: "POST" });
       showToast("Marathon reset.");
       await refreshData();
+      break;
+
+    case "select-payment-member":
+      state.paymentFilters = { ...state.paymentFilters, memberId: target.dataset.memberId };
+      await loadPaymentEntries();
+      render();
+      break;
+
+    case "clear-payment-member":
+      state.paymentFilters = { ...state.paymentFilters, memberId: "" };
+      await loadPaymentEntries();
+      render();
       break;
 
     case "toggle-user-active": {

@@ -22,9 +22,9 @@ export function renderPayments() {
     ` : ""}
     <div class="table-card payments-table">
       <table>
-        <thead><tr><th>Date</th><th>Member</th><th>Card Type</th><th>Payment Type</th><th>Payments</th><th>Benefit / Status</th><th>Recorded By</th><th>Notes</th></tr></thead>
-        <tbody>${filtered.map(paymentRow).join("") || `<tr><td colspan="8">${empty("No payments match the selected filters.")}</td></tr>`}</tbody>
-        ${f.showSum && filtered.length ? `<tfoot><tr><td colspan="4"><strong>Total Payments</strong></td><td><strong>${formatCurrency(state.paymentTotal)}</strong></td><td colspan="3"></td></tr></tfoot>` : ""}
+        <thead><tr><th>Date</th><th>Member</th><th>Card Type</th><th>Payment Type</th><th>Payments</th><th>Benefit / Status</th><th>Recorded By</th><th>Created</th><th>Notes</th></tr></thead>
+        <tbody>${filtered.map(paymentRow).join("") || `<tr><td colspan="9">${empty("No payments match the selected filters.")}</td></tr>`}</tbody>
+        ${f.showSum && filtered.length ? `<tfoot><tr><td colspan="4"><strong>Total Payments</strong></td><td><strong>${formatCurrency(state.paymentTotal)}</strong></td><td colspan="4"></td></tr></tfoot>` : ""}
       </table>
     </div>
   `;
@@ -69,16 +69,19 @@ export function renderPaymentFilters(f = {}, selectedMember, cardTypes = []) {
 }
 
 export function paymentRow(p) {
+  const benefitValue = paymentBenefitValue(p);
+  const paymentAmount = Number(p.amount || 0);
   return `
     <tr>
       <td>${formatDateOnly(p.payment_date)}</td>
-      <td><strong>${escapeHtml(p.member_name)}</strong></td>
-      <td>${escapeHtml(p.card_type)}</td>
-      <td>${escapeHtml(p.payment_mode || "-")}</td>
-      <td><strong>${formatCurrency(p.amount)}</strong></td>
-      <td>${escapeHtml(p.benefit_value || "-")}</td>
-      <td>${escapeHtml(p.recorded_by || "-")}</td>
-      <td>${escapeHtml(p.notes || "")}</td>
+      <td><button class="table-member-link" data-action="select-payment-member" data-member-id="${p.member_id}">${escapeHtml(p.member_name)}</button></td>
+      <td>${escapeHtml(p.card_type || "-")}</td>
+      <td><span class="mini-badge">${escapeHtml(p.payment_mode || "-")}</span></td>
+      <td class="payment-amount-cell">${paymentAmount > 0 ? `<strong>${formatCurrency(paymentAmount)}</strong>` : "-"}</td>
+      <td class="payment-benefit-cell">${benefitValue > 0 ? `<s class="benefit-value">${formatCurrency(benefitValue)}</s><small>Complimentary</small>` : "-"}</td>
+      <td>${escapeHtml(p.created_by || p.recorded_by || "-")}</td>
+      <td>${escapeHtml(p.created_date || "-")}</td>
+      <td>${escapeHtml(p.notes || "-")}</td>
     </tr>
   `;
 }
