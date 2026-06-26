@@ -33,9 +33,8 @@ export function renderAddUserForm() {
           <label><span class="label">Full Name</span><input name="name" placeholder="Full name" required /></label>
           <label><span class="label">Username</span><input name="username" placeholder="Login username" required /></label>
           <label><span class="label">Password</span>
-            <div class="input-wrap">
-              ${icons.lock}
-              <input id="newUserPassword" name="password" class="password-input" type="password" placeholder="Password" required />
+            <div class="input-wrap input-wrap-eye">
+              <input id="newUserPassword" name="password" class="password-input-eye" type="password" placeholder="Password" required />
               <button class="ghost-icon" type="button" data-action="toggle-password" data-target="newUserPassword" aria-label="Show password">${icons.eye}</button>
             </div>
           </label>
