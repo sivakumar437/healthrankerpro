@@ -1,0 +1,271 @@
+import { state, routes } from "../state.js";
+import { api } from "../api.js";
+import { render } from "../renderer.js";
+import { showToast, syncAgeFromDob } from "../helpers.js";
+import { refreshData, loadProfile, loadProfileAttendancePrev, loadProfileAttendanceNext, loadDashboardClubSummary, fetchMemberReport } from "./data.js";
+import { handleLogin, updateLoginButton } from "./auth.js";
+import {
+  saveMember, saveEditMember, saveMeasurement, saveEditMeasurement,
+  saveAttendance, saveCardPayment, saveLead, saveUser,
+  handleMeasurementLookup, fillMeasurementMember,
+  updateMeasurementWeekFromDate, filterAttendanceSearch, updateCardPaymentDefaults,
+} from "./forms.js";
+import { applyAuditFilters, clearAuditFilters, applyPaymentFilters, clearPaymentFilters, applyLeadFilters, clearLeadFilters, applyWeeklyReviewFilters, clearWeeklyReviewFilters } from "./filters.js";
+
+export function routeIsAccessible(routeId) {
+  const role = state.user?.role;
+  if (!role) return false;
+  if (role === "member") return ["dashboard", "measurements", "history"].includes(routeId);
+  if (routeId === "audit" && role !== "admin") return false;
+  if (routeId === "export" && role !== "admin") return false;
+  if (routeId === "compliance" && role !== "admin") return false;
+  if (routeId === "users" && role !== "admin") return false;
+  if (routeId === "reports" && !["admin", "super_admin"].includes(role)) return false;
+  if (routeId === "marathon" && role !== "admin") return false;
+  if (routeId === "members" && !["admin", "nc_organiser", "super_admin"].includes(role)) return false;
+  return true;
+}
+
+export function changeRoute(routeId) {
+  if (!routeIsAccessible(routeId)) return;
+  state.route = routeId;
+  render();
+}
+
+export async function handleAction(action, target) {
+  switch (action) {
+    case "logout":
+      await api("/api/logout", { method: "POST" });
+      window.location.reload();
+      break;
+
+    case "refresh":
+      await refreshData();
+      break;
+
+    case "switch-view":
+      state.viewMode = target.dataset.view || "personal";
+      await refreshData();
+      break;
+
+    case "view-profile":
+      await loadProfile(target.dataset.memberId);
+      break;
+
+    case "toggle-member-entry":
+      state.memberEntryOpen = !state.memberEntryOpen;
+      render();
+      break;
+
+    case "toggle-measurement-entry":
+      state.measurementEntryOpen = !state.measurementEntryOpen;
+      render();
+      break;
+
+    case "toggle-profile-edit":
+      state.profileEditOpen = !state.profileEditOpen;
+      render();
+      break;
+
+    case "toggle-lead-form":
+      state.leadFormOpen = !state.leadFormOpen;
+      render();
+      break;
+
+    case "toggle-add-user":
+      state.addUserOpen = !state.addUserOpen;
+      render();
+      break;
+
+    case "set-dmo-tab":
+      state.dmoTab = target.dataset.tab;
+      render();
+      break;
+
+    case "set-member-goal": {
+      const goalInput = document.getElementById("memberGoal") || document.querySelector("[name='goal']");
+      if (goalInput) goalInput.value = target.dataset.goal;
+      break;
+    }
+
+    case "select-attendance-member":
+      state.selectedAttendanceMemberId = target.dataset.memberId;
+      state.attendanceSearch = "";
+      render();
+      break;
+
+    case "edit-measurement": {
+      const measurement = state.measurements.find((m) => Number(m.id) === Number(target.dataset.measurementId));
+      if (measurement) { state.modal = measurement; render(); }
+      break;
+    }
+
+    case "close-modal":
+      state.modal = null;
+      render();
+      break;
+
+    case "delete-attendance": {
+      if (!confirm("Remove this attendance entry?")) break;
+      await api("/api/delete-attendance", { method: "POST", body: JSON.stringify({ attendanceId: target.dataset.attendanceId }) });
+      showToast("Attendance removed.");
+      await refreshData();
+      break;
+    }
+
+    case "set-member-status": {
+      await api("/api/set-member-status", { method: "POST", body: JSON.stringify({ memberId: target.dataset.memberId, active: target.dataset.active }) });
+      showToast("Member status updated.");
+      await refreshData();
+      break;
+    }
+
+    case "toggle-marathon": {
+      await api("/api/toggle-marathon", { method: "POST", body: JSON.stringify({ memberId: target.dataset.memberId, value: target.dataset.value }) });
+      showToast("Marathon status updated.");
+      await refreshData();
+      break;
+    }
+
+    case "reset-marathon":
+      if (!confirm("Reset Marathon for the next month? This clears all current registrations.")) break;
+      await api("/api/reset-marathon", { method: "POST" });
+      showToast("Marathon reset.");
+      await refreshData();
+      break;
+
+    case "toggle-user-active": {
+      await api("/api/toggle-user-active", { method: "POST", body: JSON.stringify({ userId: target.dataset.userId, active: target.dataset.active }) });
+      showToast("User updated.");
+      await refreshData();
+      break;
+    }
+
+    case "start-session":
+    case "reopen-session":
+      await api("/api/start-session", { method: "POST" });
+      showToast("Session opened.");
+      await refreshData();
+      break;
+
+    case "close-session":
+      if (!confirm("Close the weekly measurement session?")) break;
+      await api("/api/close-session", { method: "POST" });
+      showToast("Session closed.");
+      await refreshData();
+      break;
+
+    case "re-score-all":
+      await api("/api/re-score", { method: "POST" });
+      showToast("Scores recalculated.");
+      await refreshData();
+      break;
+
+    case "profile-attendance-prev":
+      await loadProfileAttendancePrev();
+      break;
+
+    case "profile-attendance-next":
+      await loadProfileAttendanceNext();
+      break;
+
+    case "apply-audit-filters": applyAuditFilters(); break;
+    case "clear-audit-filters": clearAuditFilters(); break;
+    case "apply-payment-filters": applyPaymentFilters(); break;
+    case "clear-payment-filters": clearPaymentFilters(); break;
+    case "apply-lead-filters": applyLeadFilters(); break;
+    case "clear-lead-filters": clearLeadFilters(); break;
+    case "apply-weekly-review-filters": applyWeeklyReviewFilters(); break;
+    case "clear-weekly-review-filters": clearWeeklyReviewFilters(); break;
+
+    case "fetch-member-report": {
+      const select = document.getElementById("reportMemberId");
+      if (select?.value) await fetchMemberReport(select.value);
+      break;
+    }
+
+    default:
+      break;
+  }
+}
+
+export function bindEvents() {
+  document.addEventListener("click", async (e) => {
+    const btn = e.target.closest("[data-action]");
+    if (btn) {
+      e.preventDefault();
+      await handleAction(btn.dataset.action, btn);
+      return;
+    }
+    const routeBtn = e.target.closest("[data-route]");
+    if (routeBtn) {
+      e.preventDefault();
+      changeRoute(routeBtn.dataset.route);
+    }
+    if (e.target.closest(".modal-overlay") === e.target) {
+      state.modal = null;
+      render();
+    }
+  });
+
+  document.addEventListener("input", (e) => {
+    const el = e.target;
+    if (el.id === "username" || el.id === "password") updateLoginButton();
+    if (el.id === "memberSearch") { state.query = el.value; render(); }
+    if (el.id === "attendanceSearch") filterAttendanceSearch(el.value);
+    if (el.id === "measurementMemberSearch") handleMeasurementLookup(el.value);
+    if (el.id === "memberDob" || el.id === "editMemberDob") {
+      const ageField = el.id === "memberDob" ? "#memberAge" : "#editMemberAge";
+      syncAgeFromDob(`#${el.id}`, ageField);
+    }
+    if (el.id === "measurementDate") updateMeasurementWeekFromDate(el.value);
+    if (el.id === "showHiddenMembers") { state.showHiddenMembers = el.checked; render(); }
+    if (el.id === "dashboardClubFilter") loadDashboardClubSummary(el.value);
+  });
+
+  document.addEventListener("submit", async (e) => {
+    const form = e.target;
+    e.preventDefault();
+    if (form.id === "loginForm") {
+      handleLogin(e);
+    }
+    else if (form.id === "memberForm") await saveMember(form);
+    else if (form.id === "editMemberForm") await saveEditMember(form);
+    else if (form.id === "measurementForm") await saveMeasurement(form);
+    else if (form.id === "editMeasurementForm") await saveEditMeasurement(form);
+    else if (form.id === "attendanceForm") await saveAttendance(form);
+    else if (form.id === "cardPaymentForm") await saveCardPayment(form);
+    else if (form.id === "leadForm") await saveLead(form);
+    else if (form.id === "addUserForm") await saveUser(form);
+    else if (form.id === "importForm") await handleImport(form);
+    else if (form.id === "reportForm") {
+      const select = document.getElementById("reportMemberId");
+      if (select?.value) await fetchMemberReport(select.value);
+    }
+  });
+
+  document.addEventListener("change", (e) => {
+    const el = e.target;
+    if (el.name === "cardType") {
+      const memberId = el.closest("form")?.querySelector("[name='memberId']")?.value;
+      if (memberId) updateCardPaymentDefaults(memberId, el.value);
+    }
+    if (el.id === "measurementMemberSearch") fillMeasurementMember(el.value);
+  });
+}
+
+async function handleImport(form) {
+  const { showToast } = await import("../helpers.js");
+  const { refreshData } = await import("./data.js");
+  const formData = new FormData(form);
+  try {
+    const response = await fetch("/api/import", { method: "POST", credentials: "same-origin", headers: { "X-Requested-With": "XMLHttpRequest" }, body: formData });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Import failed.");
+    state.importResult = result;
+    showToast(`Imported ${result.inserted || 0} records.`);
+    await refreshData();
+  } catch (err) {
+    showToast(err.message || "Import failed.");
+  }
+}
